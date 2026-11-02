@@ -1,7 +1,9 @@
-# Contexto del proyecto: Lector QR de facturas SET
+# Contexto del proyecto: Lector QR de facturas DNIT
+
+Nombre de la app: **Lector QR DNIT** (la SET ahora es la DNIT; el dominio del enlace sigue siendo `ekuatia.set.gov.py`).
 
 ## Qué es
-Página web estática (sin build ni backend) para leer en tiempo real el QR de facturas electrónicas de Paraguay (e-Kuatia / SIFEN) con la cámara del celular. Arma una lista por período mensual y genera un Excel para compartir a Google Drive.
+Página web estática (sin build ni backend) para leer en tiempo real el QR de facturas electrónicas de Paraguay (e-Kuatia / SIFEN) con la cámara del celular. Arma una lista por período mensual y genera un Excel que se guarda en el celular (el usuario usa una carpeta sincronizada con Google Drive).
 
 Es la primera etapa de un flujo mayor:
 1. **Este lector (celular):** lee QR y genera el Excel del período.
@@ -26,11 +28,11 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 ## Arquitectura
 - `index.html`: interfaz. Carga jsQR y SheetJS desde CDN, y luego `parser.js` y `app.js`.
 - `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`. Exporta con `module.exports` si existe `module`, para probar con Node.
-- `app.js`: cámara, detección, lista por período, Excel y compartir. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo`, `lectorQR_sonido` y `lectorQR_camara`).
+- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo`, `lectorQR_sonido` y `lectorQR_camara`).
 - `manifest.webmanifest`, `sw.js` e `icons/`: app instalable (PWA) que funciona sin internet.
 
 ### Interfaz
-- Tres pestañas con navegación inferior: **Escanear** (cámara a pantalla completa con visor y línea de barrido), **Lista** (tarjetas con búsqueda y borrado individual) y **Exportar** (resumen del período y botón de compartir).
+- Tres pestañas con navegación inferior: **Escanear** (cámara a pantalla completa con visor y línea de barrido), **Lista** (tarjetas con búsqueda y borrado individual) y **Exportar** (resumen del período y botón Guardar Excel).
 - El período se elige desde la etiqueta del encabezado (input `month` invisible encima).
 - Respuesta de cada lectura: aviso de color (verde registrada, ámbar duplicada, rojo error u otro mes), destello del visor, vibración y pitido (Web Audio, se puede silenciar).
 - Linterna y zoom solo aparecen si la cámara los soporta (`getCapabilities`).
@@ -55,10 +57,11 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - Chrome Android: botón "Instalar" en el encabezado y en Exportar (evento `beforeinstallprompt`). iPhone: se muestran los pasos de Safari → Compartir → Agregar a inicio.
 - Los scripts del CDN llevan `crossorigin="anonymous"` para que el service worker los pueda guardar.
 
-### Excel y Drive
-- SheetJS genera el `.xlsx` en memoria. Se entrega con `navigator.share({ files })`, y el usuario elige Google Drive.
-- No hay descarga directa (`<a download>`) a propósito: el usuario pidió no descargar.
-- Si el navegador no soporta compartir archivos, se muestra un mensaje; no se hace fallback a descarga.
+### Excel (guardar en el celular)
+- SheetJS genera el `.xlsx` en memoria con el nombre `QR_facturas_AAAA-MM.xlsx`.
+- Si existe `showSaveFilePicker`, se abre "Guardar como" para elegir carpeta (puede ser de Google Drive). Si el usuario cancela, no se hace nada.
+- Si no existe o falla, se descarga con `<a download>` a la carpeta Descargas. En Chrome se puede activar "Preguntar dónde guardar los archivos" para elegir la carpeta.
+- **No se usa `navigator.share`**: Chrome Android no permite compartir `.xlsx` (solo imágenes, PDF, texto, etc.) y daba error de permiso. El usuario pidió reemplazarlo por guardar.
 
 ## Columnas del Excel (orden fijo, no cambiar sin avisar)
 CDC · Número · Fecha emisión · Período · Tipo doc · Establecimiento · Punto · RUC emisor · DV emisor · RUC receptor · Total (Gs) · IVA (Gs) · Ítems · Versión XML · Fecha de lectura · Estado · Enlace QR
@@ -78,7 +81,7 @@ Atención: en JavaScript los índices son 0-based. `parser.js` ya usa `slice` co
 ## Pendientes conocidos
 1. Verificar en el celular del usuario que la cámara en vivo detecte QR densos (versión 10 a 14).
 2. Verificar que las URLs de los CDN (jsQR 1.4.0 y xlsx 0.18.5) respondan.
-3. Opcional: guardado directo a Drive con OAuth (requiere Google Cloud y un client ID).
+3. Opcional: guardado directo a Drive con OAuth (requiere Google Cloud y un client ID). Por ahora el usuario guarda en una carpeta del celular sincronizada con Drive.
 4. Pendiente de otra etapa: cruce con Marangatu y completado de datos (no implementado aquí).
 
 ## Convenciones

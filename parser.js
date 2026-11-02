@@ -15,7 +15,7 @@ function hexToStr(hex) {
   return s;
 }
 
-// Lee un enlace del QR de e-Kuatia (SET) y devuelve todos sus datos.
+// Lee un enlace del QR de e-Kuatia (DNIT, ex SET) y devuelve todos sus datos.
 // periodoEsperado: "AAAA-MM". Si la factura es de otro mes, devuelve error de período.
 function parsearEnlace(texto, periodoEsperado) {
   let url;
@@ -23,7 +23,7 @@ function parsearEnlace(texto, periodoEsperado) {
 
   const p = url.searchParams;
   const cdc = p.get('Id') || '';
-  if (!/^\d{44}$/.test(cdc)) return { ok: false, error: 'No corresponde a una factura electrónica SET.' };
+  if (!/^\d{44}$/.test(cdc)) return { ok: false, error: 'No corresponde a una factura electrónica DNIT.' };
 
   const fechaHex = p.get('dFeEmiDE') || '';
   const fecha = fechaHex

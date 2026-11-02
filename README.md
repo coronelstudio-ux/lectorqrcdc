@@ -1,6 +1,6 @@
-# Lector QR de facturas SET
+# Lector QR de facturas DNIT
 
-Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la cámara del celular, arma una lista del período y genera un Excel para compartir a Google Drive.
+Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la cámara del celular, arma una lista del período y genera un Excel que se guarda en el celular (por ejemplo, en una carpeta sincronizada con Google Drive).
 
 ## Privacidad
 - Este repositorio contiene **solo código**. No guarda facturas ni datos de clientes.
@@ -12,14 +12,14 @@ Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la
 2. Elige el período con la etiqueta del mes (arriba a la derecha). Las facturas de otros meses se rechazan.
 3. En **Escanear**, toca el botón de la cámara y acerca el QR hasta que ocupe casi todo el recuadro. También puedes leer desde una **Foto** o pegar el **Enlace**. Si el celular lo permite, aparecen la linterna y el zoom.
 4. En **Lista** revisa, busca o borra facturas sueltas.
-5. En **Exportar**, pulsa **Guardar Excel en Drive** y elige Google Drive en el menú de compartir.
+5. En **Exportar**, pulsa **Guardar Excel**. Si el celular lo permite se abre *Guardar como* para elegir la carpeta; si no, queda en **Descargas**. Para elegir la carpeta cada vez: Chrome ⋮ → Configuración → Descargas → *Preguntar dónde guardar los archivos*.
 
 En el visor, el botón de cámara con flechas cambia entre la cámara trasera y la frontal.
 
 ## Instalar como app
 - **Android (Chrome):** toca el botón de descarga del encabezado o **Exportar → Instalar app**. Si no aparece, menú ⋮ → *Instalar app*.
 - **iPhone (Safari):** Compartir → *Agregar a inicio*.
-- Una vez instalada abre sin barra del navegador y funciona sin internet (compartir a Drive sí necesita conexión).
+- Una vez instalada abre sin barra del navegador y funciona sin internet, incluido guardar el Excel.
 - Cuando se publica una versión nueva aparece el aviso **Nueva versión disponible → Actualizar**. Para que llegue, sube `VERSION` en `sw.js` en cada cambio.
 
 ## Publicar en GitHub Pages
@@ -35,6 +35,6 @@ Verifica las URLs en `index.html` antes de publicar.
 
 ## Archivos
 - `index.html`: interfaz.
-- `app.js`: cámara, lista, Excel y compartir.
+- `app.js`: cámara, lista y guardado del Excel.
 - `parser.js`: lectura del enlace del QR (funciones puras, probables con Node).
 - `manifest.webmanifest`, `sw.js`, `icons/`: instalación como app y uso sin conexión.

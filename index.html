@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b1220">
-<title>Lector QR de facturas SET</title>
+<title>Lector QR de facturas DNIT</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Lector QR SET">
+<meta name="apple-mobile-web-app-title" content="Lector QR DNIT">
 <style>
   :root {
     --bg: #f4f6fb; --surface: #ffffff; --surface-2: #eef1f7; --text: #141a26; --muted: #5d6779;
@@ -227,7 +227,7 @@
 <header>
   <div class="marca">
     <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></div>
-    <span>Lector QR SET</span>
+    <span>Lector QR DNIT</span>
   </div>
   <div class="derecha">
   <button class="btn-instalar" id="btnInstalar" hidden title="Instalar app" aria-label="Instalar app">
@@ -298,7 +298,7 @@
   <section id="vistaExportar" class="vista">
     <div class="contenido">
       <div class="titulo">Exportar</div>
-      <p class="subtitulo">Excel del período para Google Drive</p>
+      <p class="subtitulo">Excel del período para guardar en el celular</p>
       <div class="panel">
         <div class="metricas">
           <div class="metrica"><span>Período</span><b id="expPeriodo">—</b></div>
@@ -308,11 +308,12 @@
           <div class="metrica ancha"><span>Estado</span><b>Pendiente Marangatu</b></div>
         </div>
       </div>
-      <button class="boton" id="btnCompartir">
-        <svg viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13"/></svg>
-        Guardar Excel en Drive
+      <button class="boton" id="btnGuardar">
+        <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        Guardar Excel
       </button>
-      <p class="nota">Se abre el menú de compartir del celular: elige <b>Google Drive</b>. El archivo no se descarga en el teléfono.</p>
+      <p class="nota" id="notaGuardar">Si el celular lo permite, se abre <b>Guardar como</b> para elegir la carpeta (puede ser una de Google Drive). Si no, el archivo queda en <b>Descargas</b>.</p>
+      <p class="nota">Para elegir la carpeta en cada descarga, en Chrome: menú <b>⋮ → Configuración → Descargas → Preguntar dónde guardar los archivos</b>.</p>
 
       <div class="seccion">Aplicación</div>
       <div class="panel">

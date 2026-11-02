@@ -1,6 +1,6 @@
 {
-  "name": "Lector QR de facturas SET",
-  "short_name": "Lector QR SET",
+  "name": "Lector QR de facturas DNIT",
+  "short_name": "Lector QR DNIT",
   "description": "Lee el QR de facturas electrónicas e-Kuatia y arma el Excel del período.",
   "lang": "es",
   "id": "./",

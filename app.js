@@ -14,7 +14,7 @@ const el = {
   actualizar: $('actualizar'), btnActualizar: $('btnActualizar'), btnFoto: $('btnFoto'), archivoFoto: $('archivoFoto'), btnPegar: $('btnPegar'),
   contador: $('contador'), buscar: $('buscar'), tabla: $('tabla'), insignia: $('insignia'),
   expPeriodo: $('expPeriodo'), expCantidad: $('expCantidad'), expTotal: $('expTotal'), expIva: $('expIva'),
-  btnCompartir: $('btnCompartir'), btnBorrar: $('btnBorrar'),
+  btnGuardar: $('btnGuardar'), btnBorrar: $('btnBorrar'),
   aviso: $('aviso'), avisoIcono: $('avisoIcono'), avisoTexto: $('avisoTexto'),
   fondoHoja: $('fondoHoja'), hojaEnlace: $('hojaEnlace'), manual: $('manual'), btnManual: $('btnManual'), btnPortapapeles: $('btnPortapapeles')
 };
@@ -142,7 +142,7 @@ function render() {
   el.expCantidad.textContent = items.length;
   el.expTotal.textContent = gs(total);
   el.expIva.textContent = gs(iva);
-  el.btnCompartir.disabled = items.length === 0;
+  el.btnGuardar.disabled = items.length === 0;
 
   const q = el.buscar.value.trim().toLowerCase();
   const visibles = items
@@ -362,8 +362,9 @@ async function leerFoto(archivo) {
   }
 }
 
-// Excel en memoria: se entrega con el menú de compartir (Google Drive, etc.), sin descarga directa
-async function compartirExcel() {
+// Excel en memoria. Se guarda con "Guardar como" (elige carpeta) si el navegador lo permite;
+// si no, se descarga a la carpeta Descargas del celular.
+async function guardarExcel() {
   const items = listaDelPeriodo();
   if (!items.length) { avisar('No hay facturas en este período.', 'err'); return; }
   if (typeof XLSX === 'undefined') { avisar('No se cargó la librería de Excel. Revisa la conexión.', 'err'); return; }
@@ -373,18 +374,35 @@ async function compartirExcel() {
   XLSX.utils.book_append_sheet(wb, ws, 'QR');
   const datos = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const nombre = `QR_facturas_${periodoActual()}.xlsx`;
-  const archivo = new File([datos], nombre, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const tipo = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const blob = new Blob([datos], { type: tipo });
 
-  if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+  if (typeof window.showSaveFilePicker === 'function') {
     try {
-      await navigator.share({ files: [archivo], title: nombre });
-      avisar('Archivo enviado al menú de compartir. Elige Google Drive.', 'ok');
+      const destino = await window.showSaveFilePicker({
+        suggestedName: nombre,
+        types: [{ description: 'Libro de Excel', accept: { [tipo]: ['.xlsx'] } }]
+      });
+      const escritor = await destino.createWritable();
+      await escritor.write(blob);
+      await escritor.close();
+      avisar(`Excel guardado: ${destino.name || nombre}`, 'ok');
+      return;
     } catch (e) {
-      if (e.name !== 'AbortError') avisar('No se pudo compartir: ' + e.message, 'err');
+      if (e.name === 'AbortError') return; // el usuario cerró la ventana
+      // Otro error: se sigue con la descarga normal
     }
-  } else {
-    avisar('Este navegador no permite compartir archivos. Usa Chrome en Android.', 'err');
   }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  avisar(`Excel guardado en Descargas: ${nombre}`, 'ok');
 }
 
 // Navegación por pestañas; la cámara se apaga al salir de Escanear para ahorrar batería
@@ -415,7 +433,7 @@ function pintarInstalacion() {
   el.pasosIOS.hidden = !(esIOS && !instalada());
   if (instalada()) {
     el.appTitulo.textContent = 'App instalada';
-    el.appTexto.textContent = 'Estás usando el lector como app. Funciona sin internet; para compartir a Drive sí necesitas conexión.';
+    el.appTexto.textContent = 'Estás usando el lector como app. Funciona sin internet, también para guardar el Excel.';
   } else if (puede || esIOS) {
     el.appTexto.textContent = 'Instala el lector en la pantalla de inicio: abre sin barra del navegador y funciona sin internet.';
   } else {
@@ -514,7 +532,7 @@ el.tabla.addEventListener('click', e => {
   render();
   avisar(`Factura ${f.numeroCompleto} borrada.`, 'info');
 });
-el.btnCompartir.addEventListener('click', compartirExcel);
+el.btnGuardar.addEventListener('click', guardarExcel);
 el.btnBorrar.addEventListener('click', () => {
   if (!confirm(`¿Borrar todas las facturas de ${textoPeriodo(periodoActual())}?`)) return;
   lista = lista.filter(f => f.periodo !== periodoActual());
