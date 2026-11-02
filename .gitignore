@@ -1,0 +1,5 @@
+# La app no guarda datos en el repositorio. Estos archivos nunca deben subirse:
+*.xlsx
+*.csv
+*.zip
+node_modules/
