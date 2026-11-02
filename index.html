@@ -32,6 +32,7 @@
     display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
   }
   button { font: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+  [hidden] { display: none !important; }
   svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
   /* Encabezado */
@@ -115,7 +116,8 @@
   .zoom[hidden] { display: none; }
   .zoom input { flex: 1; accent-color: #fff; }
 
-  .barra-acciones { position: absolute; left: 0; right: 0; bottom: 24px; display: flex; align-items: center; justify-content: center; gap: 34px; }
+  .barra-acciones { position: absolute; left: 0; right: 0; bottom: 20px; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; justify-items: center; padding: 0 6px; }
+  .barra-acciones .redondo { width: 44px; height: 44px; }
   .disparador {
     width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; display: grid; place-items: center;
     background: var(--primary); box-shadow: 0 4px 18px rgba(0,0,0,.4);
@@ -220,6 +222,51 @@
   .pasos { margin: 8px 0 0; padding-left: 20px; font-size: 14px; color: var(--muted); line-height: 1.6; }
   .pasos[hidden], .boton[hidden] { display: none; }
   .oculto { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  /* Hojas altas (Sin QR y revisión) */
+  .hoja.alta { max-height: 92dvh; overflow-y: auto; }
+  .hoja .opciones { display: grid; gap: 10px; margin-top: 12px; }
+  .hoja details { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .hoja summary { font-weight: 600; cursor: pointer; }
+  .leyendo { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 14px; background: var(--surface-2); margin-top: 12px; }
+  .leyendo[hidden] { display: none; }
+  .girando { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--primary); animation: girar .8s linear infinite; flex: none; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  /* Formulario de revisión */
+  .vista-previa { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; background: #000; margin: 8px 0 4px; }
+  .vista-previa[hidden] { display: none; }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 10px; }
+  .campo { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+  .form .ancho { grid-column: 1 / -1; }
+  .campo input, .campo select, .ajustes input, .ajustes select {
+    width: 100%; padding: 10px; font-size: 16px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font-family: inherit;
+  }
+  .campo.dudoso input, .campo.dudoso select { border-color: var(--warn); background: rgba(217,138,0,.10); }
+  .campo.dudoso > span::after { content: " · revisar"; color: var(--warn); font-weight: 600; }
+  .campo.error input, .campo.error select { border-color: var(--err); }
+  .campo small { color: var(--err); font-size: 12px; }
+  .campo small:empty { display: none; }
+  .casilla { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text); padding: 6px 0; }
+  .casilla input { width: 22px; height: 22px; accent-color: var(--primary); flex: none; }
+  .resumen-errores { margin: 12px 0 0; font-size: 13px; color: var(--err); }
+  .resumen-errores:empty { display: none; }
+  .hoja .botones.fijos { position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom)); background: var(--surface); padding: 12px 0 4px; margin-top: 12px; }
+
+  /* Etiquetas de tipo y origen en la lista */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+  .chip.ia { background: rgba(76,141,255,.15); color: var(--primary); }
+  .chip.dudas { background: rgba(217,138,0,.14); color: var(--warn); }
+  .tarjeta .casilla { font-size: 13px; padding: 8px 0 0; color: var(--muted); }
+  .tarjeta .casilla input { width: 18px; height: 18px; }
+  .tarjeta.excluida { opacity: .72; }
+
+  /* Ajustes de IA */
+  .ajustes { display: grid; gap: 10px; }
+  .ajustes label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .ajustes .fila-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 </style>
 </head>
 <body>
@@ -271,14 +318,22 @@
       <button class="accion-chica" id="btnFoto" aria-label="Leer desde foto">
         <span class="redondo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span>Foto
       </button>
+      <button class="accion-chica" id="btnSinQR" aria-label="Factura sin QR (lectura con IA)">
+        <span class="redondo"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></span>Sin QR
+      </button>
       <button class="disparador" id="btnCamara" aria-label="Iniciar o detener cámara">
         <svg viewBox="0 0 24 24" id="icoDisparador"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
       </button>
       <button class="accion-chica" id="btnPegar" aria-label="Pegar enlace">
         <span class="redondo"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>Enlace
       </button>
+      <button class="accion-chica" id="btnAMano" aria-label="Cargar factura a mano">
+        <span class="redondo"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>A mano
+      </button>
     </div>
     <input type="file" id="archivoFoto" accept="image/*" class="oculto">
+    <input type="file" id="fotoIACamara" accept="image/*" capture="environment" class="oculto">
+    <input type="file" id="fotoIAGaleria" accept="image/*" class="oculto">
   </section>
 
   <!-- Lista -->
@@ -288,7 +343,7 @@
       <p class="subtitulo" id="contador"></p>
       <div class="buscar">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-        <input type="search" id="buscar" placeholder="Buscar por número, RUC o CDC">
+        <input type="search" id="buscar" placeholder="Buscar por número, RUC, razón social o CDC">
       </div>
       <div id="tabla"></div>
     </div>
@@ -305,6 +360,8 @@
           <div class="metrica"><span>Facturas</span><b id="expCantidad">0</b></div>
           <div class="metrica"><span>Total (Gs)</span><b id="expTotal">0</b></div>
           <div class="metrica"><span>IVA (Gs)</span><b id="expIva">0</b></div>
+          <div class="metrica"><span>Para conciliar</span><b id="expConciliar">0</b></div>
+          <div class="metrica"><span>Excluidas</span><b id="expExcluidas">0</b></div>
           <div class="metrica ancha"><span>Estado</span><b>Pendiente Marangatu</b></div>
         </div>
       </div>
@@ -314,6 +371,29 @@
       </button>
       <p class="nota" id="notaGuardar">Si el celular lo permite, se abre <b>Guardar como</b> para elegir la carpeta (puede ser una de Google Drive). Si no, el archivo queda en <b>Descargas</b>.</p>
       <p class="nota">Para elegir la carpeta en cada descarga, en Chrome: menú <b>⋮ → Configuración → Descargas → Preguntar dónde guardar los archivos</b>.</p>
+
+      <div class="seccion">Lectura con IA (facturas sin QR)</div>
+      <div class="panel ajustes">
+        <label>Proveedor
+          <select id="iaProveedor">
+            <option value="gemini">Google Gemini (API key)</option>
+            <option value="claude">Anthropic Claude (API key)</option>
+            <option value="manual">Manual: copiar y pegar en el chat de IA</option>
+          </select>
+        </label>
+        <label id="iaClaveFila">API key
+          <input type="password" id="iaClave" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Pega aquí tu API key">
+        </label>
+        <label id="iaModeloFila">Modelo
+          <input type="text" id="iaModelo" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </label>
+        <div class="fila-botones">
+          <button class="boton suave" id="btnBorrarClave">Borrar clave</button>
+          <button class="boton" id="btnGuardarIA">Guardar</button>
+        </div>
+        <p class="nota" id="iaEstado"></p>
+        <p class="nota">La clave se guarda solo en este celular. La foto de la factura se envía al proveedor elegido para leerla; cada lectura usa saldo de tu cuenta. Nada se guarda sin que confirmes los datos.</p>
+      </div>
 
       <div class="seccion">Aplicación</div>
       <div class="panel">
@@ -364,6 +444,64 @@
   <div class="botones">
     <button class="boton suave" id="btnPortapapeles">Pegar</button>
     <button class="boton" id="btnManual">Agregar</button>
+  </div>
+</div>
+
+<div class="hoja alta" id="hojaIA" role="dialog" aria-label="Factura sin QR">
+  <div class="asa"></div>
+  <h2>Factura sin QR</h2>
+  <p class="subtitulo" id="iaSubtitulo">Saca una foto nítida de la factura completa. La IA la lee y tú revisas antes de guardar.</p>
+  <div class="opciones" id="iaOpcionesFoto">
+    <button class="boton" id="btnIACamara"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Sacar foto</button>
+    <button class="boton suave" id="btnIAGaleria"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>Elegir de la galería</button>
+  </div>
+  <div class="leyendo" id="iaLeyendo" hidden><div class="girando"></div><span id="iaLeyendoTexto">Leyendo la factura…</span></div>
+  <details id="iaManual">
+    <summary>Sin API key: copiar y pegar</summary>
+    <ol class="pasos">
+      <li>Toca <b>Copiar instrucciones</b>.</li>
+      <li>Abre Gemini o Claude, adjunta la foto de la factura y pega las instrucciones.</li>
+      <li>Copia el JSON que responde y pégalo aquí.</li>
+    </ol>
+    <div class="opciones">
+      <button class="boton suave" id="btnCopiarPrompt">Copiar instrucciones</button>
+    </div>
+    <textarea id="iaJson" placeholder='{"tipo": "Manual", "rucEmisor": "...", ...}'></textarea>
+    <div class="botones">
+      <button class="boton suave" id="btnPegarJson">Pegar</button>
+      <button class="boton" id="btnRevisarJson">Revisar</button>
+    </div>
+  </details>
+</div>
+
+<div class="hoja alta" id="hojaRevision" role="dialog" aria-label="Revisar factura">
+  <div class="asa"></div>
+  <h2 id="revTitulo">Revisar factura</h2>
+  <p class="subtitulo" id="revSubtitulo">Corrige lo necesario. Los campos en ámbar son dudosos.</p>
+  <img class="vista-previa" id="revFoto" alt="Foto de la factura" hidden>
+  <div class="form">
+    <label class="campo"><span>Tipo</span>
+      <select id="f_tipo"><option>Electrónica sin QR</option><option>Manual</option></select><small></small></label>
+    <label class="campo"><span>Origen de los datos</span><input id="f_origen" readonly><small></small></label>
+    <label class="casilla ancho"><input type="checkbox" id="f_excluirConciliacion">Excluir de conciliación</label>
+    <label class="campo"><span>RUC emisor</span><input id="f_rucEmisor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
+    <label class="campo"><span>Timbrado</span><input id="f_timbrado" inputmode="numeric"><small></small></label>
+    <label class="campo ancho"><span>Razón social</span><input id="f_razonSocial"><small></small></label>
+    <label class="campo"><span>Número</span><input id="f_numeroCompleto" inputmode="numeric" placeholder="000-000-0000000"><small></small></label>
+    <label class="campo"><span>Fecha</span><input type="date" id="f_fecha"><small></small></label>
+    <label class="campo"><span>Condición</span>
+      <select id="f_condicion"><option value="">—</option><option>Contado</option><option>Crédito</option></select><small></small></label>
+    <label class="campo"><span>Gravada 10 %</span><input id="f_total10" inputmode="decimal"><small></small></label>
+    <label class="campo"><span>Gravada 5 %</span><input id="f_total5" inputmode="decimal"><small></small></label>
+    <label class="campo"><span>Exenta</span><input id="f_exenta" inputmode="decimal"><small></small></label>
+    <label class="campo"><span>Total</span><input id="f_total" inputmode="decimal"><small></small></label>
+    <label class="campo"><span>IVA</span><input id="f_iva" inputmode="decimal"><small></small></label>
+    <label class="campo ancho"><span>CDC (opcional)</span><input id="f_cdc" inputmode="numeric" placeholder="44 dígitos"><small></small></label>
+  </div>
+  <p class="resumen-errores" id="revErrores"></p>
+  <div class="botones fijos">
+    <button class="boton suave" id="btnCancelarRev">Cancelar</button>
+    <button class="boton" id="btnConfirmarRev">Confirmar</button>
   </div>
 </div>
 

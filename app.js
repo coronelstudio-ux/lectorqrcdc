@@ -2,6 +2,10 @@ const KEY_LISTA = 'lectorQR_lista';
 const KEY_PERIODO = 'lectorQR_periodo';
 const KEY_SONIDO = 'lectorQR_sonido';
 const KEY_CAMARA = 'lectorQR_camara';
+const KEY_IA = 'lectorQR_ia';
+const KEY_CLAVE = { gemini: 'lectorQR_clave_gemini', claude: 'lectorQR_clave_claude' };
+const MODELOS = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-5-5' };
+const NOMBRE_IA = { gemini: 'Gemini', claude: 'Claude', manual: 'copiar y pegar' };
 
 const $ = id => document.getElementById(id);
 const el = {
@@ -14,7 +18,15 @@ const el = {
   actualizar: $('actualizar'), btnActualizar: $('btnActualizar'), btnFoto: $('btnFoto'), archivoFoto: $('archivoFoto'), btnPegar: $('btnPegar'),
   contador: $('contador'), buscar: $('buscar'), tabla: $('tabla'), insignia: $('insignia'),
   expPeriodo: $('expPeriodo'), expCantidad: $('expCantidad'), expTotal: $('expTotal'), expIva: $('expIva'),
-  btnGuardar: $('btnGuardar'), btnBorrar: $('btnBorrar'),
+  btnGuardar: $('btnGuardar'), btnBorrar: $('btnBorrar'), expConciliar: $('expConciliar'), expExcluidas: $('expExcluidas'),
+  btnSinQR: $('btnSinQR'), btnAMano: $('btnAMano'), hojaIA: $('hojaIA'), iaSubtitulo: $('iaSubtitulo'), iaOpcionesFoto: $('iaOpcionesFoto'),
+  btnIACamara: $('btnIACamara'), btnIAGaleria: $('btnIAGaleria'), fotoIACamara: $('fotoIACamara'), fotoIAGaleria: $('fotoIAGaleria'),
+  iaLeyendo: $('iaLeyendo'), iaLeyendoTexto: $('iaLeyendoTexto'), iaManual: $('iaManual'), btnCopiarPrompt: $('btnCopiarPrompt'),
+  iaJson: $('iaJson'), btnPegarJson: $('btnPegarJson'), btnRevisarJson: $('btnRevisarJson'),
+  hojaRevision: $('hojaRevision'), revTitulo: $('revTitulo'), revSubtitulo: $('revSubtitulo'), revFoto: $('revFoto'), revErrores: $('revErrores'),
+  btnCancelarRev: $('btnCancelarRev'), btnConfirmarRev: $('btnConfirmarRev'),
+  iaProveedor: $('iaProveedor'), iaClave: $('iaClave'), iaClaveFila: $('iaClaveFila'), iaModelo: $('iaModelo'), iaModeloFila: $('iaModeloFila'),
+  btnGuardarIA: $('btnGuardarIA'), btnBorrarClave: $('btnBorrarClave'), iaEstado: $('iaEstado'),
   aviso: $('aviso'), avisoIcono: $('avisoIcono'), avisoTexto: $('avisoTexto'),
   fondoHoja: $('fondoHoja'), hojaEnlace: $('hojaEnlace'), manual: $('manual'), btnManual: $('btnManual'), btnPortapapeles: $('btnPortapapeles')
 };
@@ -46,6 +58,10 @@ let marcoTimer = null;
 let camara = 'environment'; // 'environment' = trasera, 'user' = frontal
 let cambiando = false;
 let eventoInstalar = null;
+let borrador = null;      // factura en revisión (aún no guardada)
+let fotoUrl = null;       // foto mostrada en el formulario de revisión
+let excluirTocado = false;
+let iaOcupada = false;
 const canvas = document.createElement('canvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -119,6 +135,8 @@ function textoPeriodo(p) {
 
 function cargarLista() {
   try { lista = JSON.parse(leerLS(KEY_LISTA) || '[]'); } catch { lista = []; }
+  if (!Array.isArray(lista)) lista = [];
+  lista = lista.map(completarFactura); // listas viejas: tipo y origen "QR"
 }
 function guardarLista() { escribirLS(KEY_LISTA, JSON.stringify(lista)); }
 
@@ -143,10 +161,13 @@ function render() {
   el.expTotal.textContent = gs(total);
   el.expIva.textContent = gs(iva);
   el.btnGuardar.disabled = items.length === 0;
+  const excluidas = items.filter(f => f.excluirConciliacion).length;
+  el.expConciliar.textContent = items.length - excluidas;
+  el.expExcluidas.textContent = excluidas;
 
   const q = el.buscar.value.trim().toLowerCase();
   const visibles = items
-    .filter(f => !q || [f.numeroCompleto, f.rucEmisor, f.cdc].some(v => String(v).toLowerCase().includes(q)))
+    .filter(f => !q || [f.numeroCompleto, f.rucEmisor, f.cdc, f.razonSocial].some(v => String(v || '').toLowerCase().includes(q)))
     .slice().reverse(); // la más reciente arriba
 
   if (!visibles.length) {
@@ -155,15 +176,21 @@ function render() {
     return;
   }
   el.tabla.innerHTML = visibles.map(f => `
-    <div class="tarjeta">
+    <div class="tarjeta${f.excluirConciliacion ? ' excluida' : ''}">
       <div class="avatar"><svg viewBox="0 0 24 24"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 1 .7V2l-1 .7-3-2-3 2-3-2-3 2-3-2z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
       <div class="datos">
         <div class="fila1"><span class="num">${esc(f.numeroCompleto)}</span><span class="monto">Gs. ${gs(f.total)}</span></div>
         <div class="fila2">${esc(f.fecha)} · RUC ${esc(f.rucEmisor)}-${esc(f.dvEmisor)} · IVA ${gs(f.iva)}</div>
-        <div class="cdc">${esc(f.cdc)}</div>
-        <span class="etiqueta">Pendiente Marangatu</span>
+        ${f.razonSocial ? `<div class="fila2">${esc(f.razonSocial)}</div>` : ''}
+        ${f.cdc ? `<div class="cdc">${esc(f.cdc)}</div>` : ''}
+        <div class="chips">
+          <span class="chip">${esc(f.tipo)}</span>
+          <span class="chip${f.origen === 'IA' ? ' ia' : ''}">Origen: ${esc(f.origen)}</span>
+          ${f.excluirConciliacion ? '' : '<span class="etiqueta" style="margin:0">Pendiente Marangatu</span>'}
+        </div>
+        <label class="casilla"><input type="checkbox" class="excluir" data-id="${esc(f.id)}"${f.excluirConciliacion ? ' checked' : ''}>Excluir de conciliación</label>
       </div>
-      <button class="borrar" data-cdc="${esc(f.cdc)}" aria-label="Borrar factura"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+      <button class="borrar" data-id="${esc(f.id)}" aria-label="Borrar factura"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
     </div>`).join('');
 }
 
@@ -174,7 +201,7 @@ function agregar(texto) {
     respuesta(r.periodoDistinto ? `Ignorada ${r.factura.numeroCompleto}: es de ${textoPeriodo(r.factura.periodo)}.` : r.error, 'err');
     return false;
   }
-  if (lista.some(f => f.cdc === r.factura.cdc)) {
+  if (lista.some(f => f.id === r.factura.id)) {
     respuesta(`Ya estaba registrada: ${r.factura.numeroCompleto}`, 'warn');
     return false;
   }
@@ -412,14 +439,319 @@ function mostrarVista(id) {
   if (id !== 'vistaEscanear' && stream) detenerCamara();
 }
 
-function abrirHoja() {
+function abrirHoja(hoja) {
+  document.querySelectorAll('.hoja.abierta').forEach(x => x.classList.remove('abierta'));
   el.fondoHoja.classList.add('abierta');
-  el.hojaEnlace.classList.add('abierta');
-  setTimeout(() => el.manual.focus(), 250);
+  hoja.classList.add('abierta');
+  hoja.scrollTop = 0;
 }
 function cerrarHoja() {
   el.fondoHoja.classList.remove('abierta');
-  el.hojaEnlace.classList.remove('abierta');
+  document.querySelectorAll('.hoja.abierta').forEach(x => x.classList.remove('abierta'));
+  borrador = null;
+  if (fotoUrl) { URL.revokeObjectURL(fotoUrl); fotoUrl = null; }
+}
+
+// ---------- Lectura con IA (facturas sin QR) ----------
+
+function configIA() {
+  let c = {};
+  try { c = JSON.parse(leerLS(KEY_IA) || '{}') || {}; } catch { c = {}; }
+  const proveedor = ['gemini', 'claude', 'manual'].includes(c.proveedor) ? c.proveedor : 'gemini';
+  const modelos = Object.assign({}, MODELOS, c.modelos || {});
+  return { proveedor, modelos };
+}
+const claveIA = prov => (KEY_CLAVE[prov] ? leerLS(KEY_CLAVE[prov]) || '' : '');
+
+function pintarAjustesIA(prov) {
+  const c = configIA();
+  prov = prov || c.proveedor;
+  el.iaProveedor.value = prov;
+  const manual = prov === 'manual';
+  el.iaClaveFila.hidden = manual;
+  el.iaModeloFila.hidden = manual;
+  el.btnBorrarClave.hidden = manual;
+  el.iaClave.value = claveIA(prov);
+  el.iaModelo.value = c.modelos[prov] || '';
+  el.iaModelo.placeholder = MODELOS[prov] || '';
+  const k = claveIA(prov);
+  el.iaEstado.textContent = manual
+    ? 'Modo manual: la app te da las instrucciones y tú pegas el JSON que responde la IA.'
+    : (k ? `Clave de ${NOMBRE_IA[prov]} guardada (termina en …${k.slice(-4)}).` : `Sin clave de ${NOMBRE_IA[prov]}.`);
+}
+
+function guardarAjustesIA() {
+  const prov = el.iaProveedor.value;
+  const c = configIA();
+  c.proveedor = prov;
+  if (prov !== 'manual') {
+    c.modelos[prov] = el.iaModelo.value.trim() || MODELOS[prov];
+    const k = el.iaClave.value.trim();
+    if (k) escribirLS(KEY_CLAVE[prov], k);
+  }
+  escribirLS(KEY_IA, JSON.stringify(c));
+  pintarAjustesIA(prov);
+  avisar('Configuración de IA guardada.', 'ok');
+}
+
+function abrirSinQR() {
+  if (!periodoActual()) { avisar('Elige primero el período (mes).', 'err'); return; }
+  if (stream) detenerCamara();
+  const c = configIA();
+  const manual = c.proveedor === 'manual';
+  const sinClave = !manual && !claveIA(c.proveedor);
+  el.iaOpcionesFoto.hidden = manual;
+  el.iaLeyendo.hidden = true;
+  el.iaManual.open = manual || sinClave;
+  el.iaSubtitulo.textContent = manual
+    ? 'Modo manual: copia las instrucciones, úsalas con la foto en Gemini o Claude y pega aquí el JSON.'
+    : sinClave
+      ? `Falta la API key de ${NOMBRE_IA[c.proveedor]} (Exportar → Lectura con IA). Mientras tanto puedes usar copiar y pegar.`
+      : `Saca una foto nítida de la factura completa. ${NOMBRE_IA[c.proveedor]} la lee y tú revisas antes de guardar.`;
+  abrirHoja(el.hojaIA);
+}
+
+// Reduce la foto (lado mayor 1600 px, JPEG) para enviar menos datos y gastar menos tokens
+async function imagenBase64(archivo) {
+  const img = await createImageBitmap(archivo);
+  const escala = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * escala);
+  c.height = Math.round(img.height * escala);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85).split(',')[1];
+}
+
+function mensajeErrorApi(status, detalle) {
+  const base = {
+    400: 'Solicitud rechazada',
+    401: 'API key inválida',
+    403: 'La API key no tiene permiso',
+    404: 'Modelo no encontrado: revisa el nombre en Exportar → Lectura con IA',
+    429: 'Límite de uso o saldo agotado; espera un momento o revisa tu cuenta'
+  }[status] || (status >= 500 ? 'El servicio de IA no responde; intenta de nuevo' : `Error ${status}`);
+  return detalle ? `${base}. ${detalle}` : base + '.';
+}
+
+async function pedirJson(url, opciones) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    const r = await fetch(url, Object.assign({ signal: ctrl.signal }, opciones));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(mensajeErrorApi(r.status, j && j.error && j.error.message));
+    return j;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('La IA tardó demasiado. Intenta de nuevo.');
+    if (e instanceof TypeError) throw new Error('Sin conexión con el servicio de IA. Revisa internet.');
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Claude: Messages API directo desde el navegador, con respuesta JSON según el esquema
+async function leerConClaude(b64, clave, modelo) {
+  const j = await pedirJson('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': clave,
+      'anthropic-version': '2026-10-21',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: modelo,
+      max_tokens: 16000,
+      system: PROMPT_IA,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: ESQUEMA_IA } },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+          { type: 'text', text: 'Lee esta factura y devuelve solo el JSON.' }
+        ]
+      }]
+    })
+  });
+  if (j.stop_reason === 'refusal') throw new Error('La IA no pudo procesar esta imagen.');
+  if (j.stop_reason === 'max_tokens') throw new Error('La respuesta de la IA quedó incompleta. Intenta de nuevo.');
+  return (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+}
+
+// Gemini: generateContent con respuesta en JSON
+async function leerConGemini(b64, clave, modelo) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`;
+  const j = await pedirJson(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: PROMPT_IA }] },
+      contents: [{ role: 'user', parts: [
+        { inlineData: { mimeType: 'image/jpeg', data: b64 } },
+        { text: 'Lee esta factura y devuelve solo el JSON.' }
+      ] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+    })
+  });
+  const cand = (j.candidates || [])[0];
+  const texto = cand && cand.content ? (cand.content.parts || []).map(p => p.text || '').join('') : '';
+  if (!texto) {
+    const motivo = (j.promptFeedback && j.promptFeedback.blockReason) || (cand && cand.finishReason) || 'sin respuesta';
+    throw new Error(`La IA no devolvió datos (${motivo}).`);
+  }
+  return texto;
+}
+
+async function leerConIA(archivo) {
+  if (!archivo || iaOcupada) return;
+  const c = configIA();
+  const clave = claveIA(c.proveedor);
+  if (c.proveedor === 'manual' || !clave) { el.iaManual.open = true; avisar('Carga la API key en Exportar → Lectura con IA, o usa copiar y pegar.', 'err'); return; }
+  iaOcupada = true;
+  el.iaOpcionesFoto.hidden = true;
+  el.iaLeyendo.hidden = false;
+  el.iaLeyendoTexto.textContent = `Leyendo la factura con ${NOMBRE_IA[c.proveedor]}…`;
+  try {
+    const b64 = await imagenBase64(archivo);
+    const leer = c.proveedor === 'claude' ? leerConClaude : leerConGemini;
+    const texto = await leer(b64, clave, c.modelos[c.proveedor] || MODELOS[c.proveedor]);
+    const datos = extraerJson(texto);
+    abrirRevision(normalizarIA(datos, 'IA'), URL.createObjectURL(archivo));
+  } catch (e) {
+    avisar(e.message || 'No se pudo leer la factura.', 'err');
+    el.iaOpcionesFoto.hidden = false;
+  } finally {
+    el.iaLeyendo.hidden = true;
+    iaOcupada = false;
+  }
+}
+
+function revisarJsonPegado() {
+  try {
+    const datos = extraerJson(el.iaJson.value);
+    el.iaJson.value = '';
+    abrirRevision(normalizarIA(datos, 'IA'), null);
+  } catch (e) {
+    avisar('El texto pegado no es un JSON válido. Copia solo la respuesta de la IA.', 'err');
+  }
+}
+
+function cargarAMano() {
+  if (!periodoActual()) { avisar('Elige primero el período (mes).', 'err'); return; }
+  if (stream) detenerCamara();
+  abrirRevision({
+    tipo: 'Manual', origen: 'Manual', excluirConciliacion: excluirPorDefecto('Manual'),
+    rucEmisor: '', dvEmisor: '', razonSocial: '', numeroCompleto: '', fecha: '', timbrado: '', condicion: '',
+    total5: null, total10: null, exenta: null, total: null, iva: null, cdc: '', revisar: []
+  }, null);
+}
+
+// ---------- Formulario de revisión ----------
+
+const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'numeroCompleto', 'fecha', 'condicion',
+  'total10', 'total5', 'exenta', 'total', 'iva', 'cdc'];
+const campoForm = c => $('f_' + c);
+const montoTexto = v => (v === null || v === undefined || v === '' ? '' : gs(v));
+
+function abrirRevision(f, foto) {
+  const fotoAnterior = fotoUrl;
+  fotoUrl = null; // que cerrar/abrir no la libere antes de mostrarla
+  abrirHoja(el.hojaRevision);
+  if (fotoAnterior && fotoAnterior !== foto) URL.revokeObjectURL(fotoAnterior);
+  borrador = f;
+  fotoUrl = foto;
+  excluirTocado = false;
+  el.revTitulo.textContent = f.origen === 'IA' ? 'Revisar lectura de la IA' : 'Cargar factura a mano';
+  el.revSubtitulo.textContent = f.origen === 'IA'
+    ? 'La IA puede equivocarse. Compara con la foto: los campos en ámbar son dudosos. Nada se guarda hasta que confirmes.'
+    : 'Completa los datos tal como figuran en la factura.';
+  el.revFoto.hidden = !foto;
+  if (foto) el.revFoto.src = foto; else el.revFoto.removeAttribute('src');
+
+  campoForm('tipo').value = f.tipo === 'Electrónica sin QR' ? 'Electrónica sin QR' : 'Manual';
+  campoForm('origen').value = f.origen;
+  $('f_excluirConciliacion').checked = !!f.excluirConciliacion;
+  campoForm('rucEmisor').value = f.rucEmisor ? `${f.rucEmisor}${f.dvEmisor ? '-' + f.dvEmisor : ''}` : '';
+  campoForm('timbrado').value = f.timbrado || '';
+  campoForm('razonSocial').value = f.razonSocial || '';
+  campoForm('numeroCompleto').value = f.numeroCompleto || '';
+  campoForm('fecha').value = normalizarFecha(f.fecha) || '';
+  campoForm('condicion').value = f.condicion || '';
+  for (const c of ['total10', 'total5', 'exenta', 'total', 'iva']) campoForm(c).value = montoTexto(f[c]);
+  campoForm('cdc').value = f.cdc || '';
+
+  const dudosos = new Set((f.revisar || []).map(c => (c === 'dvEmisor' ? 'rucEmisor' : c)));
+  for (const c of CAMPOS_FORM) campoForm(c).closest('.campo').classList.toggle('dudoso', dudosos.has(c));
+  validarFormulario();
+}
+
+function leerFormulario() {
+  const { ruc, dv } = separarRuc(campoForm('rucEmisor').value);
+  const numTxt = campoForm('numeroCompleto').value.trim();
+  const fecha = campoForm('fecha').value;
+  return {
+    tipo: campoForm('tipo').value,
+    origen: borrador ? borrador.origen : 'Manual',
+    excluirConciliacion: $('f_excluirConciliacion').checked,
+    rucEmisor: ruc.replace(/^0+/, ''),
+    dvEmisor: dv,
+    razonSocial: campoForm('razonSocial').value.trim(),
+    numeroCompleto: formatearNumero(numTxt) || numTxt,
+    fecha,
+    periodo: fecha.slice(0, 7),
+    timbrado: campoForm('timbrado').value.replace(/\s/g, ''),
+    condicion: campoForm('condicion').value,
+    total10: montoFlexible(campoForm('total10').value),
+    total5: montoFlexible(campoForm('total5').value),
+    exenta: montoFlexible(campoForm('exenta').value),
+    total: montoFlexible(campoForm('total').value),
+    iva: montoFlexible(campoForm('iva').value),
+    cdc: campoForm('cdc').value.replace(/\s/g, '')
+  };
+}
+
+function validarFormulario() {
+  const f = leerFormulario();
+  const { ok, errores } = validarFactura(f, periodoActual());
+  for (const c of CAMPOS_FORM) {
+    const campo = campoForm(c).closest('.campo');
+    campo.classList.toggle('error', !!errores[c]);
+    campo.querySelector('small').textContent = errores[c] || '';
+  }
+  el.revErrores.textContent = ok ? '' : `Hay ${Object.keys(errores).length} dato(s) para corregir antes de confirmar.`;
+  return { f, ok, errores };
+}
+
+function confirmarRevision() {
+  if (!borrador) return;
+  const { f, ok, errores } = validarFormulario();
+  if (!ok) {
+    const primero = CAMPOS_FORM.find(c => errores[c]);
+    if (primero) campoForm(primero).focus();
+    avisar('Corrige los datos marcados en rojo.', 'err');
+    return;
+  }
+  f.id = claveFactura(f);
+  if (lista.some(x => x.id === f.id)) {
+    respuesta(`Ya estaba registrada: ${f.numeroCompleto}`, 'warn');
+    return;
+  }
+  const d = datosDeCdc(f.cdc);
+  Object.assign(f, {
+    tipoDoc: d ? d.tipoDoc : '',
+    establecimiento: f.numeroCompleto.slice(0, 3),
+    punto: f.numeroCompleto.slice(4, 7),
+    numero: f.numeroCompleto.slice(8),
+    rucReceptor: '', items: '', version: '', enlace: '', parametros: '',
+    leidoEl: new Date().toISOString(),
+    revisar: []
+  });
+  lista.push(f);
+  guardarLista();
+  cerrarHoja();
+  render();
+  respuesta(`Registrada ${f.numeroCompleto} · Gs. ${gs(f.total)}`, 'ok');
 }
 
 // Instalación como app (PWA)
@@ -512,7 +844,49 @@ el.archivoFoto.addEventListener('change', () => {
   leerFoto(el.archivoFoto.files[0]);
   el.archivoFoto.value = '';
 });
-el.btnPegar.addEventListener('click', abrirHoja);
+el.btnPegar.addEventListener('click', () => { abrirHoja(el.hojaEnlace); setTimeout(() => el.manual.focus(), 250); });
+el.btnSinQR.addEventListener('click', abrirSinQR);
+el.btnAMano.addEventListener('click', cargarAMano);
+el.btnIACamara.addEventListener('click', () => el.fotoIACamara.click());
+el.btnIAGaleria.addEventListener('click', () => el.fotoIAGaleria.click());
+for (const input of [el.fotoIACamara, el.fotoIAGaleria]) {
+  input.addEventListener('change', () => { leerConIA(input.files[0]); input.value = ''; });
+}
+el.btnCopiarPrompt.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(PROMPT_IA); avisar('Instrucciones copiadas. Pégalas en Gemini o Claude junto con la foto.', 'ok'); }
+  catch { el.iaJson.value = PROMPT_IA; el.iaJson.select(); avisar('Copia el texto del cuadro manualmente.', 'info'); }
+});
+el.btnPegarJson.addEventListener('click', async () => {
+  try { el.iaJson.value = await navigator.clipboard.readText(); } catch { avisar('Mantén pulsado el cuadro y elige Pegar.', 'info'); }
+});
+el.btnRevisarJson.addEventListener('click', revisarJsonPegado);
+el.btnCancelarRev.addEventListener('click', cerrarHoja);
+el.btnConfirmarRev.addEventListener('click', confirmarRevision);
+el.hojaRevision.addEventListener('input', e => {
+  const campo = e.target.closest('.campo');
+  if (campo) campo.classList.remove('dudoso'); // el usuario ya lo revisó
+  if (e.target.id === 'f_excluirConciliacion') excluirTocado = true;
+  validarFormulario();
+});
+el.hojaRevision.addEventListener('change', e => {
+  if (e.target.id === 'f_tipo' && !excluirTocado) $('f_excluirConciliacion').checked = excluirPorDefecto(e.target.value);
+  if (e.target.id === 'f_excluirConciliacion') excluirTocado = true;
+  // Al salir de un monto se muestra con separador de miles
+  if (/^f_(total|total5|total10|exenta|iva)$/.test(e.target.id)) {
+    const n = montoFlexible(e.target.value);
+    if (n !== null) e.target.value = gs(n);
+  }
+  validarFormulario();
+});
+el.iaProveedor.addEventListener('change', () => pintarAjustesIA(el.iaProveedor.value));
+el.btnGuardarIA.addEventListener('click', guardarAjustesIA);
+el.btnBorrarClave.addEventListener('click', () => {
+  const prov = el.iaProveedor.value;
+  if (!KEY_CLAVE[prov] || !confirm(`¿Borrar la API key de ${NOMBRE_IA[prov]} de este celular?`)) return;
+  try { localStorage.removeItem(KEY_CLAVE[prov]); } catch { /* sin almacenamiento */ }
+  pintarAjustesIA(prov);
+  avisar('API key borrada.', 'info');
+});
 el.fondoHoja.addEventListener('click', cerrarHoja);
 el.btnPortapapeles.addEventListener('click', async () => {
   try { el.manual.value = await navigator.clipboard.readText(); } catch { avisar('Mantén pulsado el cuadro y elige Pegar.', 'info'); }
@@ -522,12 +896,21 @@ el.btnManual.addEventListener('click', () => {
   if (agregar(el.manual.value)) { el.manual.value = ''; cerrarHoja(); }
 });
 el.buscar.addEventListener('input', render);
+el.tabla.addEventListener('change', e => {
+  if (!e.target.classList.contains('excluir')) return;
+  const f = lista.find(x => x.id === e.target.dataset.id);
+  if (!f) return;
+  f.excluirConciliacion = e.target.checked;
+  guardarLista();
+  render();
+  avisar(f.excluirConciliacion ? `${f.numeroCompleto}: excluida de conciliación.` : `${f.numeroCompleto}: se concilia con Marangatu.`, 'info');
+});
 el.tabla.addEventListener('click', e => {
   const b = e.target.closest('.borrar');
   if (!b) return;
-  const f = lista.find(x => x.cdc === b.dataset.cdc);
+  const f = lista.find(x => x.id === b.dataset.id);
   if (!f || !confirm(`¿Borrar la factura ${f.numeroCompleto}?`)) return;
-  lista = lista.filter(x => x.cdc !== f.cdc);
+  lista = lista.filter(x => x.id !== f.id);
   guardarLista();
   render();
   avisar(`Factura ${f.numeroCompleto} borrada.`, 'info');
@@ -554,6 +937,8 @@ el.periodo.addEventListener('change', () => {
   pintarInstalacion();
   registrarServiceWorker();
   pintarSonido();
+  pintarAjustesIA();
   cargarLista();
+  guardarLista(); // guarda la migración de listas viejas
   render();
 })();
