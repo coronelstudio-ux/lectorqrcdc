@@ -9,9 +9,10 @@ Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la
 
 ## Uso
 1. Abre la página desde GitHub Pages (HTTPS, necesario para la cámara).
-2. Elige el período (mes de emisión). Las facturas de otros meses se rechazan.
-3. Pulsa **Iniciar cámara** y acerca el QR hasta que ocupe casi todo el recuadro.
-4. Cuando termines, pulsa **Guardar Excel en Drive** y elige Google Drive en el menú de compartir.
+2. Elige el período con la etiqueta del mes (arriba a la derecha). Las facturas de otros meses se rechazan.
+3. En **Escanear**, toca el botón de la cámara y acerca el QR hasta que ocupe casi todo el recuadro. También puedes leer desde una **Foto** o pegar el **Enlace**. Si el celular lo permite, aparecen la linterna y el zoom.
+4. En **Lista** revisa, busca o borra facturas sueltas.
+5. En **Exportar**, pulsa **Guardar Excel en Drive** y elige Google Drive en el menú de compartir.
 
 ## Publicar en GitHub Pages
 1. Crea un repositorio en GitHub (privado o público; no importa para los datos, porque no hay).

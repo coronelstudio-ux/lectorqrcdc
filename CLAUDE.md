@@ -26,7 +26,16 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 ## Arquitectura
 - `index.html`: interfaz. Carga jsQR y SheetJS desde CDN, y luego `parser.js` y `app.js`.
 - `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`. Exporta con `module.exports` si existe `module`, para probar con Node.
-- `app.js`: cámara, detección, lista por período, Excel y compartir. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista` y `lectorQR_periodo`).
+- `app.js`: cámara, detección, lista por período, Excel y compartir. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo` y `lectorQR_sonido`).
+
+### Interfaz
+- Tres pestañas con navegación inferior: **Escanear** (cámara a pantalla completa con visor y línea de barrido), **Lista** (tarjetas con búsqueda y borrado individual) y **Exportar** (resumen del período y botón de compartir).
+- El período se elige desde la etiqueta del encabezado (input `month` invisible encima).
+- Respuesta de cada lectura: aviso de color (verde registrada, ámbar duplicada, rojo error u otro mes), destello del visor, vibración y pitido (Web Audio, se puede silenciar).
+- Linterna y zoom solo aparecen si la cámara los soporta (`getCapabilities`).
+- Leer QR desde una foto de la galería (misma detección que la cámara).
+- La cámara se apaga al salir de la pestaña Escanear.
+- Tema claro u oscuro según el sistema; la vista de cámara siempre es oscura.
 
 ### Detección de QR
 1. Si existe `BarcodeDetector` (Chrome Android), se usa primero: es el lector más robusto para QR densos.

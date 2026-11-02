@@ -2,53 +2,324 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
 <title>Lector QR de facturas SET</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 14px; background: #fafafa; color: #222; }
-  h1 { font-size: 19px; margin: 0 0 10px; }
-  label { font-size: 14px; color: #444; }
-  input[type=month], input[type=text] { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #bbb; border-radius: 8px; margin-top: 4px; }
-  button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border: none; border-radius: 8px; background: #1a73e8; color: #fff; cursor: pointer; }
-  button.secundario { background: #555; }
-  button.peligro { background: #c62828; }
-  button:disabled { background: #aaa; }
-  video { width: 100%; background: #000; border-radius: 8px; margin-top: 6px; }
-  .estado { margin: 10px 0; padding: 10px; background: #eef3fb; border-radius: 8px; font-size: 15px; min-height: 22px; }
-  .estado.error { background: #fdecea; color: #8a1c1c; }
-  #resolucion { font-size: 12px; color: #666; margin: 4px 0 0; }
-  #ultimo { font-size: 14px; font-weight: bold; margin: 6px 0; min-height: 18px; }
-  #contador { font-size: 14px; color: #555; margin: 10px 0 4px; }
-  .fila { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin: 6px 0; font-size: 14px; }
-  .cdc { font-family: monospace; font-size: 11px; color: #555; word-break: break-all; margin-top: 4px; }
+  :root {
+    --bg: #f4f6fb; --surface: #ffffff; --surface-2: #eef1f7; --text: #141a26; --muted: #5d6779;
+    --border: #dde2ec; --primary: #1a73e8; --primary-text: #ffffff; --ok: #1e9e5a; --warn: #d98a00; --err: #d93a3a;
+    --nav: #ffffff; --shadow: 0 6px 20px rgba(15, 25, 45, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1220; --surface: #141c2e; --surface-2: #1c263b; --text: #e8ecf4; --muted: #95a0b5;
+      --border: #26324a; --primary: #4c8dff; --nav: #10182a; --shadow: 0 6px 20px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+  }
+  button { font: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+  svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Encabezado */
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: #0b1220; color: #fff;
+  }
+  .marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+  .marca .logo { width: 32px; height: 32px; border-radius: 9px; background: var(--primary); display: grid; place-items: center; }
+  .marca .logo svg { width: 20px; height: 20px; color: #fff; }
+  .chip-periodo {
+    position: relative; display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+    border-radius: 999px; background: rgba(255,255,255,.12); font-size: 14px; font-weight: 600; color: #fff;
+  }
+  .chip-periodo svg { width: 16px; height: 16px; }
+  .chip-periodo input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+
+  main { flex: 1; position: relative; overflow: hidden; }
+  .vista { position: absolute; inset: 0; overflow-y: auto; display: none; }
+  .vista.activa { display: block; }
+
+  /* Vista Escanear */
+  #vistaEscanear { background: #000; color: #fff; overflow: hidden; }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .visor { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .marco {
+    position: relative; width: min(72vw, 52vh, 340px); aspect-ratio: 1; border-radius: 22px;
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55); transition: box-shadow .2s;
+  }
+  .marco i { position: absolute; width: 34px; height: 34px; border: 4px solid #fff; transition: border-color .2s; }
+  .marco i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 22px; }
+  .marco i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 22px; }
+  .marco i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 22px; }
+  .marco i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 22px; }
+  .linea {
+    position: absolute; left: 8%; right: 8%; height: 2px; top: 10%; display: none;
+    background: linear-gradient(90deg, transparent, #4c8dff, transparent); box-shadow: 0 0 12px #4c8dff;
+    animation: barrido 2.2s ease-in-out infinite alternate;
+  }
+  @keyframes barrido { from { top: 8%; } to { top: 92%; } }
+  .escaneando .linea { display: block; }
+  .marco.ok i { border-color: var(--ok); }
+  .marco.warn i { border-color: var(--warn); }
+  .marco.err i { border-color: var(--err); }
+
+  .apagada {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; text-align: center; padding: 24px; background: radial-gradient(circle at 50% 40%, #1a2540, #05080f 70%);
+  }
+  .escaneando .apagada { display: none; }
+  .apagada .icono { width: 84px; height: 84px; border-radius: 26px; background: rgba(255,255,255,.08); display: grid; place-items: center; }
+  .apagada .icono svg { width: 44px; height: 44px; }
+  .apagada p { margin: 0; color: #b6c0d4; font-size: 15px; max-width: 280px; }
+
+  .resumen-flotante {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+    padding: 8px 14px; border-radius: 999px; background: rgba(10, 16, 30, .72); backdrop-filter: blur(8px);
+    font-size: 14px; white-space: nowrap;
+  }
+  .resumen-flotante b { font-size: 15px; }
+  .resumen-flotante .sep { opacity: .4; }
+
+  .pista { position: absolute; left: 0; right: 0; bottom: 150px; text-align: center; font-size: 14px; color: #dfe6f3; padding: 0 24px; text-shadow: 0 1px 3px #000; }
+  #resolucion { position: absolute; left: 12px; bottom: 12px; font-size: 11px; color: rgba(255,255,255,.55); }
+
+  .lateral { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; }
+  .redondo {
+    width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(10, 16, 30, .7); backdrop-filter: blur(8px); color: #fff;
+  }
+  .redondo.on { background: #ffd54a; color: #1a1a1a; }
+  .redondo[hidden] { display: none; }
+
+  .zoom { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(70vw, 300px); display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .zoom[hidden] { display: none; }
+  .zoom input { flex: 1; accent-color: #fff; }
+
+  .barra-acciones { position: absolute; left: 0; right: 0; bottom: 24px; display: flex; align-items: center; justify-content: center; gap: 34px; }
+  .disparador {
+    width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; display: grid; place-items: center;
+    background: var(--primary); box-shadow: 0 4px 18px rgba(0,0,0,.4);
+  }
+  .disparador svg { width: 32px; height: 32px; color: #fff; }
+  .escaneando .disparador { background: var(--err); }
+  .accion-chica { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: #dfe6f3; }
+
+  /* Vistas Lista y Exportar */
+  .contenido { padding: 16px; max-width: 640px; margin: 0 auto; padding-bottom: 32px; }
+  .titulo { font-size: 22px; font-weight: 700; margin: 4px 0 2px; }
+  .subtitulo { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+  .buscar { position: relative; margin-bottom: 14px; }
+  .buscar svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); }
+  .buscar input {
+    width: 100%; padding: 12px 12px 12px 42px; font-size: 16px; border-radius: 14px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .tarjeta {
+    display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow);
+  }
+  .tarjeta .avatar { flex: none; width: 42px; height: 42px; border-radius: 12px; background: var(--surface-2); color: var(--primary); display: grid; place-items: center; }
+  .tarjeta .avatar svg { width: 22px; height: 22px; }
+  .tarjeta .datos { flex: 1; min-width: 0; }
+  .tarjeta .fila1 { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 8px; font-weight: 700; }
+  .tarjeta .num { white-space: nowrap; }
+  .tarjeta .monto { white-space: nowrap; }
+  .tarjeta .fila2 { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .tarjeta .cdc { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); word-break: break-all; margin-top: 6px; }
+  .etiqueta { display: inline-block; margin-top: 8px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(217,138,0,.14); color: var(--warn); }
+  .tarjeta .borrar { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
+  .tarjeta .borrar:active { background: rgba(217,58,58,.12); color: var(--err); }
+  .tarjeta .borrar svg { width: 20px; height: 20px; }
+  .vacio { text-align: center; color: var(--muted); padding: 48px 16px; }
+  .vacio svg { width: 56px; height: 56px; opacity: .5; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
+  .metricas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .metrica { background: var(--surface-2); border-radius: 14px; padding: 12px; }
+  .metrica span { display: block; font-size: 12px; color: var(--muted); }
+  .metrica b { display: block; font-size: 19px; margin-top: 4px; word-break: break-word; }
+  .metrica.ancha { grid-column: 1 / -1; }
+  .boton {
+    display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 15px;
+    border-radius: 14px; font-size: 16px; font-weight: 600; background: var(--primary); color: var(--primary-text);
+  }
+  .boton:disabled { opacity: .5; }
+  .boton.peligro { background: transparent; color: var(--err); border: 1px solid var(--err); }
+  .boton.suave { background: var(--surface-2); color: var(--text); }
+  .nota { font-size: 13px; color: var(--muted); margin: 10px 2px 0; line-height: 1.45; }
+  .seccion { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 22px 2px 8px; }
+
+  /* Navegación inferior */
+  nav {
+    display: flex; background: var(--nav); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 0 8px; font-size: 12px; color: var(--muted); position: relative; }
+  nav button.activa { color: var(--primary); font-weight: 600; }
+  nav button.activa::before { content: ""; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--primary); }
+  .insignia { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--err); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+  .insignia[hidden] { display: none; }
+
+  /* Aviso (toast) */
+  #aviso {
+    position: fixed; left: 50%; top: calc(70px + env(safe-area-inset-top)); transform: translate(-50%, -20px);
+    width: min(92vw, 460px); padding: 13px 16px; border-radius: 14px; background: #1f2937; color: #fff;
+    font-size: 15px; display: flex; gap: 10px; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 30;
+  }
+  #aviso.visible { opacity: 1; transform: translate(-50%, 0); }
+  #aviso.ok { background: var(--ok); }
+  #aviso.warn { background: var(--warn); }
+  #aviso.err { background: var(--err); }
+  #aviso svg { flex: none; }
+
+  /* Hoja inferior para pegar enlace */
+  .fondo { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; display: none; }
+  .fondo.abierta { display: block; }
+  .hoja {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; background: var(--surface); color: var(--text);
+    border-radius: 22px 22px 0 0; padding: 10px 16px calc(18px + env(safe-area-inset-bottom));
+    transform: translateY(110%); transition: transform .25s ease; max-width: 640px; margin: 0 auto;
+  }
+  .hoja.abierta { transform: translateY(0); }
+  .hoja .asa { width: 40px; height: 5px; border-radius: 3px; background: var(--border); margin: 0 auto 12px; }
+  .hoja h2 { font-size: 18px; margin: 0 0 4px; }
+  .hoja textarea {
+    width: 100%; min-height: 96px; margin: 10px 0; padding: 12px; font-size: 15px; border-radius: 14px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text); resize: vertical;
+  }
+  .hoja .botones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .oculto { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>
-<h1>Lector QR de facturas SET</h1>
 
-<label>Período (mes de emisión)
-  <input type="month" id="periodo">
-</label>
+<header>
+  <div class="marca">
+    <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></div>
+    <span>Lector QR SET</span>
+  </div>
+  <label class="chip-periodo" title="Cambiar período">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+    <span id="periodoTexto">Período</span>
+    <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+    <input type="month" id="periodo" aria-label="Período (mes de emisión)">
+  </label>
+</header>
 
-<button id="btnCamara">🎥 Iniciar cámara</button>
-<button id="btnDetener" class="secundario" disabled>Detener cámara</button>
-<video id="video" autoplay playsinline muted></video>
-<div id="resolucion"></div>
+<main>
+  <!-- Escanear -->
+  <section id="vistaEscanear" class="vista activa">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="apagada">
+      <div class="icono"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg></div>
+      <p>Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.</p>
+    </div>
+    <div class="visor"><div class="marco" id="marco"><i></i><i></i><i></i><i></i><div class="linea"></div></div></div>
 
-<div id="estado" class="estado"></div>
-<div id="ultimo"></div>
+    <div class="resumen-flotante"><b id="contadorFlotante">0</b> facturas <span class="sep">·</span> Gs. <b id="totalFlotante">0</b></div>
+    <div class="pista" id="estado"></div>
+    <div id="resolucion"></div>
 
-<label>O pega el enlace del QR
-  <input type="text" id="manual" placeholder="https://ekuatia.set.gov.py/consultas/qr?...">
-</label>
-<button id="btnManual" class="secundario">Agregar enlace pegado</button>
+    <div class="lateral">
+      <button class="redondo" id="btnLinterna" hidden title="Linterna" aria-label="Linterna"><svg viewBox="0 0 24 24"><path d="M6 2h12v4l-3 4v12H9V10L6 6z"/><path d="M12 14v2"/></svg></button>
+      <button class="redondo" id="btnZoom" hidden title="Zoom" aria-label="Zoom"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+      <button class="redondo" id="btnSonido" title="Sonido" aria-label="Sonido"><svg viewBox="0 0 24 24" id="icoSonido"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg></button>
+    </div>
 
-<div id="contador"></div>
-<div id="tabla"></div>
+    <div class="zoom" id="panelZoom" hidden>
+      <span>1×</span><input type="range" id="zoom" min="1" max="1" step="0.1" value="1" aria-label="Zoom"><span id="zoomMax">1×</span>
+    </div>
 
-<button id="btnCompartir">💾 Guardar Excel en Drive</button>
-<button id="btnBorrar" class="peligro">Borrar lista del período</button>
+    <div class="barra-acciones">
+      <button class="accion-chica" id="btnFoto" aria-label="Leer desde foto">
+        <span class="redondo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span>Foto
+      </button>
+      <button class="disparador" id="btnCamara" aria-label="Iniciar o detener cámara">
+        <svg viewBox="0 0 24 24" id="icoDisparador"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </button>
+      <button class="accion-chica" id="btnPegar" aria-label="Pegar enlace">
+        <span class="redondo"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>Enlace
+      </button>
+    </div>
+    <input type="file" id="archivoFoto" accept="image/*" class="oculto">
+  </section>
+
+  <!-- Lista -->
+  <section id="vistaLista" class="vista">
+    <div class="contenido">
+      <div class="titulo">Facturas</div>
+      <p class="subtitulo" id="contador"></p>
+      <div class="buscar">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" id="buscar" placeholder="Buscar por número, RUC o CDC">
+      </div>
+      <div id="tabla"></div>
+    </div>
+  </section>
+
+  <!-- Exportar -->
+  <section id="vistaExportar" class="vista">
+    <div class="contenido">
+      <div class="titulo">Exportar</div>
+      <p class="subtitulo">Excel del período para Google Drive</p>
+      <div class="panel">
+        <div class="metricas">
+          <div class="metrica"><span>Período</span><b id="expPeriodo">—</b></div>
+          <div class="metrica"><span>Facturas</span><b id="expCantidad">0</b></div>
+          <div class="metrica"><span>Total (Gs)</span><b id="expTotal">0</b></div>
+          <div class="metrica"><span>IVA (Gs)</span><b id="expIva">0</b></div>
+          <div class="metrica ancha"><span>Estado</span><b>Pendiente Marangatu</b></div>
+        </div>
+      </div>
+      <button class="boton" id="btnCompartir">
+        <svg viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13"/></svg>
+        Guardar Excel en Drive
+      </button>
+      <p class="nota">Se abre el menú de compartir del celular: elige <b>Google Drive</b>. El archivo no se descarga en el teléfono.</p>
+
+      <div class="seccion">Zona de cuidado</div>
+      <button class="boton peligro" id="btnBorrar">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        Borrar lista del período
+      </button>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="activa" data-vista="vistaEscanear">
+    <svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>Escanear
+  </button>
+  <button data-vista="vistaLista">
+    <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Lista
+    <span class="insignia" id="insignia" hidden>0</span>
+  </button>
+  <button data-vista="vistaExportar">
+    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13l3 3 5-5"/></svg>Exportar
+  </button>
+</nav>
+
+<div id="aviso" role="status" aria-live="polite"><span id="avisoIcono"></span><span id="avisoTexto"></span></div>
+
+<div class="fondo" id="fondoHoja"></div>
+<div class="hoja" id="hojaEnlace" role="dialog" aria-label="Pegar enlace del QR">
+  <div class="asa"></div>
+  <h2>Pegar enlace del QR</h2>
+  <p class="subtitulo">Útil si el QR no se lee con la cámara.</p>
+  <textarea id="manual" placeholder="https://ekuatia.set.gov.py/consultas/qr?..."></textarea>
+  <div class="botones">
+    <button class="boton suave" id="btnPortapapeles">Pegar</button>
+    <button class="boton" id="btnManual">Agregar</button>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
