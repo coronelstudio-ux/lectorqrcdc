@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b1220">
 <title>Lector QR de facturas SET</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lector QR SET">
 <style>
   :root {
     --bg: #f4f6fb; --surface: #ffffff; --surface-2: #eef1f7; --text: #141a26; --muted: #5d6779;
@@ -40,6 +47,11 @@
     border-radius: 999px; background: rgba(255,255,255,.12); font-size: 14px; font-weight: 600; color: #fff;
   }
   .chip-periodo svg { width: 16px; height: 16px; }
+  .derecha { display: flex; align-items: center; gap: 8px; }
+  .btn-instalar { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--primary); color: #fff; }
+  .btn-instalar svg { width: 18px; height: 18px; }
+  .marca, .chip-periodo { white-space: nowrap; }
+  .btn-instalar[hidden] { display: none; }
   .chip-periodo input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
 
   main { flex: 1; position: relative; overflow: hidden; }
@@ -49,6 +61,7 @@
   /* Vista Escanear */
   #vistaEscanear { background: #000; color: #fff; overflow: hidden; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #video.espejo { transform: scaleX(-1); }
   .visor { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
   .marco {
     position: relative; width: min(72vw, 52vh, 340px); aspect-ratio: 1; border-radius: 22px;
@@ -196,6 +209,16 @@
     border: 1px solid var(--border); background: var(--surface-2); color: var(--text); resize: vertical;
   }
   .hoja .botones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  #actualizar {
+    position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    width: min(92vw, 460px); padding: 10px 10px 10px 16px; border-radius: 14px; background: #1f2937; color: #fff;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; z-index: 35;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  #actualizar[hidden] { display: none; }
+  #actualizar button { padding: 9px 14px; border-radius: 10px; background: var(--primary); color: #fff; font-weight: 600; }
+  .pasos { margin: 8px 0 0; padding-left: 20px; font-size: 14px; color: var(--muted); line-height: 1.6; }
+  .pasos[hidden], .boton[hidden] { display: none; }
   .oculto { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 </style>
 </head>
@@ -206,12 +229,17 @@
     <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></div>
     <span>Lector QR SET</span>
   </div>
+  <div class="derecha">
+  <button class="btn-instalar" id="btnInstalar" hidden title="Instalar app" aria-label="Instalar app">
+    <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+  </button>
   <label class="chip-periodo" title="Cambiar período">
     <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
     <span id="periodoTexto">Período</span>
     <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
     <input type="month" id="periodo" aria-label="Período (mes de emisión)">
   </label>
+  </div>
 </header>
 
 <main>
@@ -229,6 +257,7 @@
     <div id="resolucion"></div>
 
     <div class="lateral">
+      <button class="redondo" id="btnCambiar" hidden title="Cambiar cámara" aria-label="Cambiar entre cámara trasera y frontal"><svg viewBox="0 0 24 24"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14.5 9.5v1.7h-1.7M9.5 16.5v-1.7h1.7"/></svg></button>
       <button class="redondo" id="btnLinterna" hidden title="Linterna" aria-label="Linterna"><svg viewBox="0 0 24 24"><path d="M6 2h12v4l-3 4v12H9V10L6 6z"/><path d="M12 14v2"/></svg></button>
       <button class="redondo" id="btnZoom" hidden title="Zoom" aria-label="Zoom"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></button>
       <button class="redondo" id="btnSonido" title="Sonido" aria-label="Sonido"><svg viewBox="0 0 24 24" id="icoSonido"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg></button>
@@ -285,6 +314,20 @@
       </button>
       <p class="nota">Se abre el menú de compartir del celular: elige <b>Google Drive</b>. El archivo no se descarga en el teléfono.</p>
 
+      <div class="seccion">Aplicación</div>
+      <div class="panel">
+        <b id="appTitulo">Usar como app</b>
+        <p class="nota" id="appTexto">Instala el lector en la pantalla de inicio: abre sin barra del navegador y funciona sin internet.</p>
+        <ol class="pasos" id="pasosIOS" hidden>
+          <li>Toca el botón <b>Compartir</b> de Safari (cuadro con flecha).</li>
+          <li>Elige <b>Agregar a inicio</b>.</li>
+          <li>Confirma con <b>Agregar</b>.</li>
+        </ol>
+        <button class="boton" id="btnInstalar2" hidden style="margin-top:12px">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Instalar app
+        </button>
+      </div>
+
       <div class="seccion">Zona de cuidado</div>
       <button class="boton peligro" id="btnBorrar">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
@@ -309,6 +352,8 @@
 
 <div id="aviso" role="status" aria-live="polite"><span id="avisoIcono"></span><span id="avisoTexto"></span></div>
 
+<div id="actualizar" hidden><span>Nueva versión disponible</span><button id="btnActualizar">Actualizar</button></div>
+
 <div class="fondo" id="fondoHoja"></div>
 <div class="hoja" id="hojaEnlace" role="dialog" aria-label="Pegar enlace del QR">
   <div class="asa"></div>
@@ -321,8 +366,8 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
 <script src="parser.js"></script>
 <script src="app.js"></script>
 </body>

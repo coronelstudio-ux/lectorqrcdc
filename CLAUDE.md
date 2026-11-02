@@ -26,7 +26,8 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 ## Arquitectura
 - `index.html`: interfaz. Carga jsQR y SheetJS desde CDN, y luego `parser.js` y `app.js`.
 - `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`. Exporta con `module.exports` si existe `module`, para probar con Node.
-- `app.js`: cámara, detección, lista por período, Excel y compartir. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo` y `lectorQR_sonido`).
+- `app.js`: cámara, detección, lista por período, Excel y compartir. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo`, `lectorQR_sonido` y `lectorQR_camara`).
+- `manifest.webmanifest`, `sw.js` e `icons/`: app instalable (PWA) que funciona sin internet.
 
 ### Interfaz
 - Tres pestañas con navegación inferior: **Escanear** (cámara a pantalla completa con visor y línea de barrido), **Lista** (tarjetas con búsqueda y borrado individual) y **Exportar** (resumen del período y botón de compartir).
@@ -34,6 +35,7 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - Respuesta de cada lectura: aviso de color (verde registrada, ámbar duplicada, rojo error u otro mes), destello del visor, vibración y pitido (Web Audio, se puede silenciar).
 - Linterna y zoom solo aparecen si la cámara los soporta (`getCapabilities`).
 - Leer QR desde una foto de la galería (misma detección que la cámara).
+- Botón para cambiar entre cámara trasera y frontal (solo si hay más de una). La frontal se ve en espejo; la app recuerda la última elegida.
 - La cámara se apaga al salir de la pestaña Escanear.
 - Tema claro u oscuro según el sistema; la vista de cámara siempre es oscura.
 
@@ -45,6 +47,13 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 ### Cámara
 - Requiere HTTPS o localhost. Desde un archivo local (`file://`) Chrome Android no da permiso.
 - Pide `facingMode: environment` y 1920×1080 ideal. La resolución real se muestra en pantalla para diagnóstico.
+
+### App instalable (PWA)
+- `manifest.webmanifest`: pantalla completa (`standalone`), vertical, rutas relativas para funcionar dentro de GitHub Pages (`/<repositorio>/`).
+- `sw.js`: guarda la app y las librerías del CDN (cache-first). No guarda datos de facturas.
+- **Al cambiar cualquier archivo de la app, subir `VERSION` en `sw.js`.** Si no, los celulares con la app instalada siguen usando la copia vieja. Con la versión nueva aparece el aviso "Nueva versión disponible" y el botón Actualizar recarga.
+- Chrome Android: botón "Instalar" en el encabezado y en Exportar (evento `beforeinstallprompt`). iPhone: se muestran los pasos de Safari → Compartir → Agregar a inicio.
+- Los scripts del CDN llevan `crossorigin="anonymous"` para que el service worker los pueda guardar.
 
 ### Excel y Drive
 - SheetJS genera el `.xlsx` en memoria. Se entrega con `navigator.share({ files })`, y el usuario elige Google Drive.

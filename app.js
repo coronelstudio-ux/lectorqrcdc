@@ -1,6 +1,7 @@
 const KEY_LISTA = 'lectorQR_lista';
 const KEY_PERIODO = 'lectorQR_periodo';
 const KEY_SONIDO = 'lectorQR_sonido';
+const KEY_CAMARA = 'lectorQR_camara';
 
 const $ = id => document.getElementById(id);
 const el = {
@@ -8,7 +9,9 @@ const el = {
   marco: $('marco'), btnCamara: $('btnCamara'), estado: $('estado'), resolucion: $('resolucion'),
   contadorFlotante: $('contadorFlotante'), totalFlotante: $('totalFlotante'),
   btnLinterna: $('btnLinterna'), btnZoom: $('btnZoom'), panelZoom: $('panelZoom'), zoom: $('zoom'), zoomMax: $('zoomMax'),
-  btnSonido: $('btnSonido'), btnFoto: $('btnFoto'), archivoFoto: $('archivoFoto'), btnPegar: $('btnPegar'),
+  btnSonido: $('btnSonido'), btnCambiar: $('btnCambiar'),
+  btnInstalar: $('btnInstalar'), btnInstalar2: $('btnInstalar2'), appTitulo: $('appTitulo'), appTexto: $('appTexto'), pasosIOS: $('pasosIOS'),
+  actualizar: $('actualizar'), btnActualizar: $('btnActualizar'), btnFoto: $('btnFoto'), archivoFoto: $('archivoFoto'), btnPegar: $('btnPegar'),
   contador: $('contador'), buscar: $('buscar'), tabla: $('tabla'), insignia: $('insignia'),
   expPeriodo: $('expPeriodo'), expCantidad: $('expCantidad'), expTotal: $('expTotal'), expIva: $('expIva'),
   btnCompartir: $('btnCompartir'), btnBorrar: $('btnBorrar'),
@@ -40,6 +43,9 @@ let sonidoOn = true;
 let audioCtx = null;
 let avisoTimer = null;
 let marcoTimer = null;
+let camara = 'environment'; // 'environment' = trasera, 'user' = frontal
+let cambiando = false;
+let eventoInstalar = null;
 const canvas = document.createElement('canvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -218,7 +224,7 @@ async function iniciarCamara() {
   }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      video: { facingMode: { ideal: camara }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false
     });
   } catch (e) {
@@ -227,6 +233,7 @@ async function iniciarCamara() {
     return;
   }
   el.video.srcObject = stream;
+  el.video.classList.toggle('espejo', camara === 'user');
   el.video.onloadedmetadata = () => {
     el.resolucion.textContent = `Cámara: ${el.video.videoWidth}×${el.video.videoHeight}`;
   };
@@ -265,6 +272,7 @@ function detenerCamara() {
   el.btnLinterna.classList.remove('on');
   el.btnZoom.hidden = true;
   el.btnZoom.classList.remove('on');
+  el.btnCambiar.hidden = true;
   el.panelZoom.hidden = true;
   el.vistaEscanear.classList.remove('escaneando');
   document.getElementById('icoDisparador').innerHTML = ICO_CAMARA;
@@ -285,6 +293,30 @@ function configurarControles() {
   } else {
     el.btnZoom.hidden = true;
   }
+  mostrarCambiarCamara();
+}
+
+// El botón de cambiar cámara solo aparece si hay más de una cámara
+async function mostrarCambiarCamara() {
+  try {
+    const dispositivos = await navigator.mediaDevices.enumerateDevices();
+    el.btnCambiar.hidden = dispositivos.filter(d => d.kind === 'videoinput').length < 2;
+  } catch {
+    el.btnCambiar.hidden = true;
+  }
+}
+
+async function cambiarCamara() {
+  if (cambiando) return;
+  cambiando = true;
+  camara = camara === 'environment' ? 'user' : 'environment';
+  escribirLS(KEY_CAMARA, camara);
+  if (stream) {
+    detenerCamara();
+    await iniciarCamara();
+  }
+  avisar(camara === 'user' ? 'Cámara frontal' : 'Cámara trasera', 'info');
+  cambiando = false;
 }
 
 async function alternarLinterna() {
@@ -372,6 +404,59 @@ function cerrarHoja() {
   el.hojaEnlace.classList.remove('abierta');
 }
 
+// Instalación como app (PWA)
+const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const instalada = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function pintarInstalacion() {
+  const puede = !!eventoInstalar;
+  el.btnInstalar.hidden = !puede;
+  el.btnInstalar2.hidden = !puede;
+  el.pasosIOS.hidden = !(esIOS && !instalada());
+  if (instalada()) {
+    el.appTitulo.textContent = 'App instalada';
+    el.appTexto.textContent = 'Estás usando el lector como app. Funciona sin internet; para compartir a Drive sí necesitas conexión.';
+  } else if (puede || esIOS) {
+    el.appTexto.textContent = 'Instala el lector en la pantalla de inicio: abre sin barra del navegador y funciona sin internet.';
+  } else {
+    el.appTexto.textContent = 'Si no aparece el botón, abre el menú de Chrome (⋮) y elige "Instalar app" o "Agregar a la pantalla principal".';
+  }
+}
+
+async function instalar() {
+  if (!eventoInstalar) return;
+  eventoInstalar.prompt();
+  const r = await eventoInstalar.userChoice;
+  eventoInstalar = null;
+  pintarInstalacion();
+  if (r.outcome === 'accepted') avisar('Instalando la app…', 'ok');
+}
+
+function registrarServiceWorker() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  // Solo se recarga cuando el usuario pidió actualizar (no en la primera instalación)
+  let pidioActualizar = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!pidioActualizar) return;
+    pidioActualizar = false;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    const avisarNueva = sw => {
+      el.actualizar.hidden = false;
+      el.btnActualizar.onclick = () => { pidioActualizar = true; el.actualizar.hidden = true; sw.postMessage('activar'); };
+    };
+    // Solo hay "versión nueva" si ya había una app controlando la página
+    if (reg.waiting && navigator.serviceWorker.controller) avisarNueva(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const nuevo = reg.installing;
+      nuevo.addEventListener('statechange', () => {
+        if (nuevo.state === 'installed' && navigator.serviceWorker.controller) avisarNueva(nuevo);
+      });
+    });
+  }).catch(() => { /* sin service worker: la página sigue funcionando en línea */ });
+}
+
 function pintarSonido() {
   document.getElementById('icoSonido').innerHTML = sonidoOn ? ICO_SONIDO_ON : ICO_SONIDO_OFF;
 }
@@ -380,6 +465,19 @@ function pintarSonido() {
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => mostrarVista(b.dataset.vista)));
 el.btnCamara.addEventListener('click', () => (stream ? detenerCamara() : iniciarCamara()));
 el.btnLinterna.addEventListener('click', alternarLinterna);
+el.btnCambiar.addEventListener('click', cambiarCamara);
+el.btnInstalar.addEventListener('click', instalar);
+el.btnInstalar2.addEventListener('click', instalar);
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  eventoInstalar = e;
+  pintarInstalacion();
+});
+window.addEventListener('appinstalled', () => {
+  eventoInstalar = null;
+  pintarInstalacion();
+  avisar('App instalada en la pantalla de inicio.', 'ok');
+});
 el.btnZoom.addEventListener('click', () => {
   el.panelZoom.hidden = !el.panelZoom.hidden;
   el.btnZoom.classList.toggle('on', !el.panelZoom.hidden);
@@ -434,6 +532,9 @@ el.periodo.addEventListener('change', () => {
   const hoy = new Date();
   el.periodo.value = leerLS(KEY_PERIODO) || `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
   sonidoOn = leerLS(KEY_SONIDO) !== '0';
+  camara = leerLS(KEY_CAMARA) === 'user' ? 'user' : 'environment';
+  pintarInstalacion();
+  registrarServiceWorker();
   pintarSonido();
   cargarLista();
   render();

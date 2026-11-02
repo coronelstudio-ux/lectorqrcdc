@@ -14,6 +14,14 @@ Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la
 4. En **Lista** revisa, busca o borra facturas sueltas.
 5. En **Exportar**, pulsa **Guardar Excel en Drive** y elige Google Drive en el menú de compartir.
 
+En el visor, el botón de cámara con flechas cambia entre la cámara trasera y la frontal.
+
+## Instalar como app
+- **Android (Chrome):** toca el botón de descarga del encabezado o **Exportar → Instalar app**. Si no aparece, menú ⋮ → *Instalar app*.
+- **iPhone (Safari):** Compartir → *Agregar a inicio*.
+- Una vez instalada abre sin barra del navegador y funciona sin internet (compartir a Drive sí necesita conexión).
+- Cuando se publica una versión nueva aparece el aviso **Nueva versión disponible → Actualizar**. Para que llegue, sube `VERSION` en `sw.js` en cada cambio.
+
 ## Publicar en GitHub Pages
 1. Crea un repositorio en GitHub (privado o público; no importa para los datos, porque no hay).
 2. Sube estos archivos: `git remote add origin <url>` y `git push -u origin main`.
@@ -29,3 +37,4 @@ Verifica las URLs en `index.html` antes de publicar.
 - `index.html`: interfaz.
 - `app.js`: cámara, lista, Excel y compartir.
 - `parser.js`: lectura del enlace del QR (funciones puras, probables con Node).
+- `manifest.webmanifest`, `sw.js`, `icons/`: instalación como app y uso sin conexión.
