@@ -18,6 +18,12 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - **Montos paraguayos:** el enlace trae `139.900,0000` (punto = miles, coma = decimales) o `1090.909091` (punto decimal). `parseMonto` acepta ambos. No cambiar esta regla.
 - **Todos los parámetros del enlace** se guardan (columna "Enlace QR" y JSON interno), para no tener que releer el QR.
 - **Estado inicial:** cada fila sale como "Pendiente Marangatu".
+- **Tipos de factura:** `QR` (leída del QR), `Electrónica sin QR` (KuDE con CDC impreso, leída con IA) y `Manual` (preimpresa). **Origen de los datos:** `QR`, `IA` o `Manual` (cargada a mano).
+- **Identificador único (`id`):** el CDC si tiene 44 dígitos; si no, `número|RUC sin ceros a la izquierda|fecha|total redondeado` (`claveFactura`).
+- **Excluir de conciliación:** casilla por factura. Por defecto: QR = no, Electrónica sin QR = no, Manual = sí (`excluirPorDefecto`). La conciliación con Marangatu no está implementada; solo debe respetar esta casilla.
+- **La IA nunca guarda sola:** siempre se abre el formulario de revisión con los campos dudosos (`revisar`) en ámbar y las validaciones en vivo; solo "Confirmar" agrega la factura.
+- **Validaciones (`validarFactura`):** total = 5 % + 10 % + exenta; RUC con DV (1 a 8 dígitos, guion, 1 dígito); fecha real y dentro del período; número `000-000-0000000`; IVA = gravada 10 %/11 + gravada 5 %/21 con tolerancia de 1 Gs por tasa; si hay CDC, debe coincidir con número, RUC y fecha.
+- **Montos escritos a mano o por la IA:** `montoFlexible` convierte `139.900` (solo puntos de miles) en 139900 y el resto lo pasa a `parseMonto` sin cambiar su regla.
 
 ## Privacidad (importante)
 - El repositorio **solo contiene código**. Nunca subir facturas, Excel, CSV, capturas ni datos de clientes (RUC, nombres, teléfonos, correos).
@@ -27,8 +33,8 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 
 ## Arquitectura
 - `index.html`: interfaz. Carga jsQR y SheetJS desde CDN, y luego `parser.js` y `app.js`.
-- `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`. Exporta con `module.exports` si existe `module`, para probar con Node.
-- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo`, `lectorQR_sonido` y `lectorQR_camara`).
+- `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`, y para facturas sin QR `validarFactura`, `normalizarIA`, `claveFactura`, `completarFactura`, `montoFlexible`, `PROMPT_IA`, `ESQUEMA_IA`. Exporta con `module.exports` si existe `module`, para probar con Node.
+- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo`, `lectorQR_sonido`, `lectorQR_camara`, `lectorQR_ia` y las API keys `lectorQR_clave_gemini` / `lectorQR_clave_claude`). Al cargar, `completarFactura` migra listas viejas (tipo y origen `QR`).
 - `manifest.webmanifest`, `sw.js` e `icons/`: app instalable (PWA) que funciona sin internet.
 
 ### Interfaz
@@ -37,6 +43,8 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - Respuesta de cada lectura: aviso de color (verde registrada, ámbar duplicada, rojo error u otro mes), destello del visor, vibración y pitido (Web Audio, se puede silenciar).
 - Linterna y zoom solo aparecen si la cámara los soporta (`getCapabilities`).
 - Leer QR desde una foto de la galería (misma detección que la cámara).
+- Barra de Escanear: Foto · Sin QR · cámara · Enlace · A mano. **Sin QR** abre la lectura con IA (foto o galería, o copiar y pegar); **A mano** abre el formulario vacío.
+- En la lista, cada tarjeta muestra tipo, origen y la casilla "Excluir de conciliación".
 - Botón para cambiar entre cámara trasera y frontal (solo si hay más de una). La frontal se ve en espejo; la app recuerda la última elegida.
 - La cámara se apaga al salir de la pestaña Escanear.
 - Tema claro u oscuro según el sistema; la vista de cámara siempre es oscura.
@@ -57,6 +65,14 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - Chrome Android: botón "Instalar" en el encabezado y en Exportar (evento `beforeinstallprompt`). iPhone: se muestran los pasos de Safari → Compartir → Agregar a inicio.
 - Los scripts del CDN llevan `crossorigin="anonymous"` para que el service worker los pueda guardar.
 
+### Lectura con IA (facturas sin QR)
+- Proveedores: **Gemini** (por ahora el principal), **Claude** y **manual** (copiar las instrucciones, usarlas con la foto en el chat de la IA y pegar el JSON). Se eligen en Exportar → Lectura con IA.
+- La API key se guarda solo en `localStorage` del celular, en un campo `type="password"`. Nunca en el repositorio.
+- Gemini: `POST https://generativelanguage.googleapis.com/v1beta/models/<modelo>:generateContent`, encabezado `x-goog-api-key`, `responseMimeType: application/json`. Modelo por defecto `gemini-flash-latest` (editable en la app).
+- Claude: `POST https://api.anthropic.com/v1/messages` con `claude-haiku-5-5`, `anthropic-version: 2026-10-21`, `anthropic-dangerous-direct-browser-access: true`, imagen base64 y `output_config.format` con `ESQUEMA_IA` (JSON garantizado), `effort: low`.
+- La foto se reduce a 1600 px (JPEG 0,85) antes de enviarla. Requiere internet; el resto de la app funciona sin conexión.
+- `PROMPT_IA` pide solo JSON con las claves del esquema y `null` para lo que no aparece (sin estimar). `normalizarIA` limpia la respuesta, completa datos desde el CDC y marca dudosos.
+
 ### Excel (guardar en el celular)
 - SheetJS genera el `.xlsx` en memoria con el nombre `QR_facturas_AAAA-MM.xlsx`.
 - Si existe `showSaveFilePicker`, se abre "Guardar como" para elegir carpeta (puede ser de Google Drive). Si el usuario cancela, no se hace nada.
@@ -64,7 +80,9 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - **No se usa `navigator.share`**: Chrome Android no permite compartir `.xlsx` (solo imágenes, PDF, texto, etc.) y daba error de permiso. El usuario pidió reemplazarlo por guardar.
 
 ## Columnas del Excel (orden fijo, no cambiar sin avisar)
-CDC · Número · Fecha emisión · Período · Tipo doc · Establecimiento · Punto · RUC emisor · DV emisor · RUC receptor · Total (Gs) · IVA (Gs) · Ítems · Versión XML · Fecha de lectura · Estado · Enlace QR
+CDC · Número · Fecha emisión · Período · Tipo doc · Establecimiento · Punto · RUC emisor · DV emisor · RUC receptor · Total (Gs) · IVA (Gs) · Ítems · Versión XML · Fecha de lectura · Estado · Enlace QR · **Tipo · Excluir de conciliación · Origen de los datos · Razón social · Timbrado · Condición · Gravada 5 % · Gravada 10 % · Exenta**
+
+Las 9 últimas se agregaron al final (aprobado por el usuario) para no romper el script de ContAdis. En facturas QR, razón social, timbrado, condición y desglose quedan vacíos. "Excluir de conciliación" sale como `Sí` / `No`.
 
 ## Estructura del enlace QR (e-Kuatia)
 `https://ekuatia.set.gov.py/consultas/qr?nVersion=…&Id=<CDC>&dFeEmiDE=<fecha en hex>&dRucRec=…&dTotGralOpe=…&dTotIVA=…&cItems=…&DigestValue=…&IdCSC=0001&cHashQR=…`
@@ -74,7 +92,7 @@ CDC (44 dígitos): tipo doc (1-2), RUC emisor (3-10), DV (11), establecimiento (
 Atención: en JavaScript los índices son 0-based. `parser.js` ya usa `slice` con esa convención (ej.: `cdc.slice(25, 33)` = fecha).
 
 ## Pruebas
-- Parser con Node (sin dependencias): `node tests/parser.test.js`
+- Parser y validaciones con Node (sin dependencias, datos sintéticos): `node tests/parser.test.js`
 - Sintaxis de la app: `node --check app.js`
 - Prueba manual: publicar en GitHub Pages y probar en Chrome Android con una factura real.
 
@@ -82,7 +100,9 @@ Atención: en JavaScript los índices son 0-based. `parser.js` ya usa `slice` co
 1. Verificar en el celular del usuario que la cámara en vivo detecte QR densos (versión 10 a 14).
 2. Verificar que las URLs de los CDN (jsQR 1.4.0 y xlsx 0.18.5) respondan.
 3. Opcional: guardado directo a Drive con OAuth (requiere Google Cloud y un client ID). Por ahora el usuario guarda en una carpeta del celular sincronizada con Drive.
-4. Pendiente de otra etapa: cruce con Marangatu y completado de datos (no implementado aquí).
+4. Pendiente de otra etapa: cruce con Marangatu y completado de datos (no implementado aquí; solo respetar "Excluir de conciliación").
+5. Probar en el celular la lectura con IA con una factura manual y una electrónica sin QR reales (Gemini con la API key del usuario).
+6. Confirmar que el modelo de Gemini por defecto (`gemini-flash-latest`) responde; si no, cambiarlo en la app.
 
 ## Convenciones
 - Sin frameworks ni build. JavaScript de navegador en ES2020, sin módulos ES.

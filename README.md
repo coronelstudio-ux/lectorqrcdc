@@ -16,6 +16,19 @@ Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la
 
 En el visor, el botón de cámara con flechas cambia entre la cámara trasera y la frontal.
 
+## Facturas sin QR (lectura con IA)
+1. En **Exportar → Lectura con IA**, elige el proveedor (Gemini, Claude o copiar y pegar) y pega tu API key. Se guarda solo en el celular.
+2. En **Escanear**, toca **Sin QR** y saca una foto de la factura (o elígela de la galería).
+3. Revisa el formulario: los campos en ámbar son dudosos y los errores salen en rojo (sumas, IVA, RUC, número, fecha del período). Nada se guarda hasta que tocas **Confirmar**.
+4. **A mano** abre el mismo formulario vacío para cargar una factura sin IA.
+
+Cada factura tiene la casilla **Excluir de conciliación** (por defecto marcada solo en las manuales). El Excel suma al final las columnas Tipo, Excluir de conciliación, Origen de los datos, Razón social, Timbrado, Condición, Gravada 5 %, Gravada 10 % y Exenta.
+
+## Pruebas
+```
+node tests/parser.test.js
+```
+
 ## Instalar como app
 - **Android (Chrome):** toca el botón de descarga del encabezado o **Exportar → Instalar app**. Si no aparece, menú ⋮ → *Instalar app*.
 - **iPhone (Safari):** Compartir → *Agregar a inicio*.
