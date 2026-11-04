@@ -87,7 +87,120 @@ function parsearEnlace(texto, periodoEsperado, rucCliente) {
 const TIPOS = ['QR', 'Electrónica sin QR', 'Manual'];
 const ORIGENES = ['QR', 'IA', 'Manual'];
 const CAMPOS_IA = ['tipo', 'rucEmisor', 'dvEmisor', 'razonSocial', 'rucReceptor', 'numeroCompleto', 'fecha', 'timbrado',
-  'condicion', 'total5', 'total10', 'exenta', 'total', 'iva', 'cdc'];
+  'condicion', 'total5', 'total10', 'exenta', 'total', 'iva', 'cdc', 'cuenta', 'descripcion'];
+
+// ---------- Cuentas de ContAdis (solo las que puede llevar una factura de compra) ----------
+// Texto exacto de ContAdis, incluidos sus errores de escritura ("LUBRICANES"), para que el script coincida.
+const CUENTAS_COMPRA = [
+  { grupo: 'Mercaderías y costos', cuentas: [
+    'COSTO DE MERCADERÍAS GRAVADAS POR EL IVA',
+    'COSTO DE MERCADERÍAS EXENTAS DEL IVA',
+    'COSTO DE MERCADERÍAS - ZONA FRANCA',
+    'COSTO DE SERVICIOS GRAVADOS',
+    'COSTO DE VENTAS EXENTAS DEL IVA',
+    'COSTO DE VENTAS DE SOJA Y SUS DERIVADOS',
+    'COSTO DE VENTAS DE MAÍZ',
+    'COSTO DE VENTAS DE TRIGO',
+    'COSTO DE VENTAS DE OTROS PRODUCTOS AGRÍCOLAS',
+    'COSTO DE VENTAS DE GANADO',
+    'COSTO DE VENTAS DE PRODUCTOS FRUTÍCOLAS Y HORTÍCOLAS',
+    'COSTO DE VENTAS DE PRODUCTOS DE LA EXPLOTACIÓN FORESTAL',
+    'COSTO DE EXPORTACIONES A EMPRESAS VINCULADAS',
+    'COSTO DE EXPORTACIONES A TERCEROS NO VINCULADOS',
+    'COSTO DE OTROS PRODUCTOS AGRÍCOLAS EXPORTADOS',
+    'COSTO DE PRODUCTOS FARMACÉUTICOS EXPORTADOS',
+    'COSTO DE MAQUINARIAS Y EQUIPOS EXPORTADOS',
+    'COSTO DE OTROS PRODUCTOS INDUSTRIALIZADOS EXPORTADOS',
+    'COSTO DE OTROS PRODUCTOS EXPORTADOS',
+    'COSTO DE VENTAS A EXTRANJEROS',
+    'COSTO DE VENTAS A DISTRIBUIDORES LOCALES',
+    'COSTO DE VENTAS A CLIENTES LOCALES',
+    'COSTO DE VENTAS POR RÉGIMEN DE MAQUILA',
+    'COSTO DE VENTAS BAJO OTROS REGÍMENES ESPECIALES',
+    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AGROPECUARIO',
+    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE GANADO',
+    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVIDAD'
+  ] },
+  { grupo: 'Gastos', cuentas: [
+    'ÚTILES DE OFICINA',
+    'COMBUSTIBLES Y LUBRICANES',
+    'AGUA, LUZ, TELÉFONO E INTERNET',
+    'ALQUILERES',
+    'HONORARIOS PERSONALES',
+    'REPARACIONES Y MANTENIMIENTOS',
+    'SEGUROS PAGADOS',
+    'MOVILIDAD',
+    'FLETES PAGADOS',
+    'PUBLICIDAD Y PROPAGANDA',
+    'GASTOS DE REPRESENTACIÓN',
+    'VIÁTICOS A VENDEDORES',
+    'COMISIONES PAGADAS SOBRE VENTAS',
+    'OTROS GASTOS DE VENTAS',
+    'OTROS BENEFICIOS AL PERSONAL'
+  ] },
+  { grupo: 'Financieros e impuestos', cuentas: [
+    'COMISIONES Y GASTOS BANCARIOS OPERACIONALES',
+    'COMISIONES Y GASTOS BANCARIOS SOBRE OPERACIONES ACREDITICIAS',
+    'INTERESES PAGADOS A ENTIDADES BANCARIAS Y FINANCIERAS',
+    'OTROS INTERESES PAGADOS',
+    'IMPUESTOS, PATENTES, TASAS Y OTRAS CONTRIBUCIONES',
+    'MULTAS Y SANCIONES',
+    'GASTOS DE COBRANZAS',
+    'JUICIOS Y GASTOS JUDICIALES',
+    'DONACIONES Y CONTRIBUCIONES',
+    'GASTOS PAGADOS EN EL EXTERIOR'
+  ] }
+];
+const CUENTAS = CUENTAS_COMPRA.flatMap(g => g.cuentas);
+const MAX_DESCRIPCION = 60;
+
+const sinAcentos = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+// Devuelve la cuenta exacta del listado (sin importar mayúsculas, acentos ni espacios) o '' si no está
+function normalizarCuenta(txt) {
+  const t = sinAcentos(txt);
+  return t ? (CUENTAS.find(c => sinAcentos(c) === t) || '') : '';
+}
+function normalizarDescripcion(txt) {
+  return String(txt ?? '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, MAX_DESCRIPCION);
+}
+
+// Datos obligatorios para ContAdis que no trae el QR: timbrado, cuenta y descripción
+function validarComplementos(f) {
+  const errores = {};
+  if (!/^\d{8}$/.test(String(f.timbrado ?? ''))) errores.timbrado = 'El timbrado tiene 8 dígitos.';
+  if (!CUENTAS.includes(f.cuenta)) errores.cuenta = 'Elige la cuenta.';
+  const d = String(f.descripcion ?? '').trim();
+  if (!d) errores.descripcion = 'Falta la descripción.';
+  else if (d.length > MAX_DESCRIPCION) errores.descripcion = `Máximo ${MAX_DESCRIPCION} caracteres.`;
+  return errores;
+}
+// Lista de datos que le faltan a una factura para poder generar el Excel
+function faltantes(f) {
+  const nombres = { timbrado: 'timbrado', cuenta: 'cuenta', descripcion: 'descripción' };
+  return Object.keys(validarComplementos(f)).map(c => nombres[c]);
+}
+
+// ---------- Memoria por proveedor (para sugerir sin gastar IA) ----------
+// { timbrados: { rucEmisor: '12345678' }, cuentas: { clienteId: { rucEmisor: { cuenta, descripcion } } } }
+function memoriaVacia() { return { timbrados: {}, cuentas: {} }; }
+function sugerenciaProveedor(memoria, clienteId, rucEmisor) {
+  const m = memoria || memoriaVacia();
+  const ruc = String(rucEmisor ?? '').replace(/^0+/, '');
+  const c = ((m.cuentas || {})[clienteId] || {})[ruc] || {};
+  return { timbrado: (m.timbrados || {})[ruc] || '', cuenta: c.cuenta || '', descripcion: c.descripcion || '' };
+}
+function recordarProveedor(memoria, clienteId, f) {
+  const m = memoria && memoria.timbrados ? memoria : memoriaVacia();
+  m.cuentas = m.cuentas || {};
+  const ruc = String(f.rucEmisor ?? '').replace(/^0+/, '');
+  if (!ruc) return m;
+  if (/^\d{8}$/.test(String(f.timbrado ?? ''))) m.timbrados[ruc] = String(f.timbrado);
+  if (clienteId && CUENTAS.includes(f.cuenta)) {
+    m.cuentas[clienteId] = m.cuentas[clienteId] || {};
+    m.cuentas[clienteId][ruc] = { cuenta: f.cuenta, descripcion: normalizarDescripcion(f.descripcion) };
+  }
+  return m;
+}
 
 // ---------- Clientes (contribuyentes que atiende el usuario) ----------
 
@@ -104,6 +217,7 @@ function rucCoincide(a, b) {
 // Revisa los datos de un cliente. Devuelve { ok, errores: { campo: mensaje } }.
 function validarCliente(c, otros = []) {
   const errores = {};
+  if (String(c.actividades ?? '').length > 500) errores.actividades = 'Máximo 500 caracteres.';
   if (!String(c.nombre ?? '').trim()) errores.nombre = 'Falta el nombre.';
   if (!/^\d{1,8}-\d$/.test(`${c.ruc ?? ''}-${c.dv ?? ''}`)) errores.ruc = 'RUC con DV: formato 0000000-0.';
   else if (otros.some(o => o.id !== c.id && rucCoincide(o.ruc, c.ruc))) errores.ruc = 'Ya existe un cliente con ese RUC.';
@@ -200,6 +314,7 @@ function validarFactura(f, periodo, rucCliente) {
   if (!normalizarFecha(f.fecha)) errores.fecha = 'Fecha inválida.';
   else if (periodo && f.fecha.slice(0, 7) !== periodo) errores.fecha = `Fuera del período ${periodo}.`;
   if (!TIPOS.includes(f.tipo)) errores.tipo = 'Tipo inválido.';
+  Object.assign(errores, validarComplementos(f));
   if (f.cdc && !/^\d{44}$/.test(f.cdc)) errores.cdc = 'El CDC tiene 44 dígitos.';
 
   const t5 = f.total5 ?? 0, t10 = f.total10 ?? 0, ex = f.exenta ?? 0;
@@ -251,6 +366,8 @@ function normalizarIA(datos, origen = 'IA') {
     fecha: fecha || texto(d.fecha),
     periodo: fecha ? fecha.slice(0, 7) : '',
     rucReceptor: rucBase(d.rucReceptor),
+    cuenta: normalizarCuenta(d.cuenta),
+    descripcion: normalizarDescripcion(d.descripcion),
     timbrado: texto(d.timbrado).replace(/\s/g, ''),
     condicion: normalizarCondicion(d.condicion),
     cdc: /^\d{44}$/.test(cdc) ? cdc : (cdc ? cdc : ''),
@@ -280,6 +397,9 @@ function normalizarIA(datos, origen = 'IA') {
   if (!f.razonSocial) revisar.add('razonSocial');
   if (!f.condicion) revisar.add('condicion');
   if (!f.rucReceptor) revisar.add('rucReceptor');
+  if (!f.cuenta) revisar.add('cuenta');
+  if (!f.descripcion) revisar.add('descripcion');
+  if (f.timbrado && !/^\d{8}$/.test(f.timbrado)) revisar.add('timbrado');
 
   f.revisar = [...revisar];
   return f;
@@ -289,15 +409,18 @@ function normalizarIA(datos, origen = 'IA') {
 function completarFactura(f) {
   const r = Object.assign({
     tipo: 'QR', origen: 'QR', razonSocial: '', timbrado: '', condicion: '',
-    total5: null, total10: null, exenta: null, revisar: [], clienteId: ''
+    total5: null, total10: null, exenta: null, revisar: [], clienteId: '', cuenta: '', descripcion: ''
   }, f);
   if (typeof r.excluirConciliacion !== 'boolean') r.excluirConciliacion = excluirPorDefecto(r.tipo);
   if (!r.id) r.id = claveFactura(r);
   return r;
 }
 
-// Instrucciones para la IA (también se copian en el modo manual)
-const PROMPT_IA = `Eres un lector de facturas de compra de Paraguay (DNIT). Lee la imagen y devuelve únicamente un objeto JSON, sin texto adicional y sin bloques de código, con estas claves:
+// Instrucciones para la IA (también se copian en el modo manual).
+// Lleva el listado de cuentas de compra y las actividades del cliente para elegir la cuenta.
+function armarPromptIA(actividades) {
+  const act = String(actividades ?? '').trim() || 'no informadas';
+  return `Eres un lector de facturas de compra de Paraguay (DNIT). Lee la imagen y devuelve únicamente un objeto JSON, sin texto adicional y sin bloques de código, con estas claves:
 - tipo: "Electrónica sin QR" si es un KuDE de factura electrónica (tiene CDC de 44 dígitos) o "Manual" si es una factura preimpresa.
 - rucEmisor: RUC del emisor (el proveedor que vende, no el cliente), solo dígitos y sin DV.
 - dvEmisor: dígito verificador del RUC del emisor.
@@ -305,7 +428,7 @@ const PROMPT_IA = `Eres un lector de facturas de compra de Paraguay (DNIT). Lee 
 - rucReceptor: RUC del cliente que compra (receptor de la factura), solo dígitos y sin DV.
 - numeroCompleto: número de factura con formato 000-000-0000000.
 - fecha: fecha de emisión con formato AAAA-MM-DD.
-- timbrado: número de timbrado.
+- timbrado: número de timbrado (8 dígitos).
 - condicion: "Contado" o "Crédito".
 - total5: total gravado 5 % (IVA incluido).
 - total10: total gravado 10 % (IVA incluido).
@@ -313,9 +436,16 @@ const PROMPT_IA = `Eres un lector de facturas de compra de Paraguay (DNIT). Lee 
 - total: total a pagar.
 - iva: total del IVA (5 % + 10 %).
 - cdc: CDC de 44 dígitos sin espacios, o null si no tiene.
+- cuenta: exactamente una de las CUENTAS de abajo, según lo que se compra y la actividad del cliente. Si el cliente revende lo comprado o lo usa en su actividad (mercaderías), usa "COSTO DE MERCADERÍAS GRAVADAS POR EL IVA", o "COSTO DE MERCADERÍAS EXENTAS DEL IVA" si todo es exento. Si es un gasto propio (combustible, útiles, servicios, honorarios, alquiler, etc.), usa la cuenta de gasto que corresponda.
+- descripcion: resumen corto y general de lo comprado (máximo ${MAX_DESCRIPCION} caracteres). Un solo ítem: su nombre tal como figura. Varios ítems del mismo tipo: el tipo general (ej. "GALLETITAS", "BEBIDAS VARIAS"), sin marcas ni presentaciones. Ítems de distintos tipos: "MERCADERÍAS VARIAS".
 - revisar: lista con los nombres de las claves que no se leen con claridad o de las que dudas.
 Montos: números enteros en guaraníes, sin separadores de miles.
-Si un campo no aparece en la factura, devuelve null. No estimes ni calcules valores que no estén impresos.`;
+Si un campo no aparece en la factura, devuelve null. No estimes ni calcules valores que no estén impresos (cuenta y descripcion sí se eligen a partir del detalle).
+Actividades del cliente: ${act}
+CUENTAS:
+${CUENTAS.join('\n')}`;
+}
+const PROMPT_IA = armarPromptIA('');
 
 // Esquema JSON para pedir la respuesta estructurada (Claude)
 const ESQUEMA_IA = (() => {
@@ -326,6 +456,7 @@ const ESQUEMA_IA = (() => {
     rucEmisor: txt, dvEmisor: txt, razonSocial: txt, rucReceptor: txt, numeroCompleto: txt, fecha: txt, timbrado: txt,
     condicion: { anyOf: [{ type: 'string', enum: ['Contado', 'Crédito'] }, { type: 'null' }] },
     total5: num, total10: num, exenta: num, total: num, iva: num, cdc: txt,
+    cuenta: { anyOf: [{ type: 'string', enum: CUENTAS }, { type: 'null' }] }, descripcion: txt,
     revisar: { type: 'array', items: { type: 'string', enum: CAMPOS_IA } }
   };
   return { type: 'object', properties: props, required: Object.keys(props), additionalProperties: false };
@@ -339,38 +470,40 @@ function extraerJson(texto) {
   return JSON.parse(t.slice(i, j + 1));
 }
 
-// Fila para el Excel (nombres de columna en español). Las 17 primeras columnas mantienen su orden;
-// las nuevas van al final para no romper el script de ContAdis.
+// Fila para el Excel (nombres de columna en español). Orden aprobado por el usuario:
+// primero los datos principales (con cuenta, descripción y timbrado juntos) y el CDC al final.
 function aFilaExcel(f) {
   const num = String(f.numeroCompleto || '');
   const n = (v) => (v === null || v === undefined ? '' : v);
   return {
-    'CDC': f.cdc || '',
-    'Número': num,
     'Fecha emisión': f.fecha,
+    'Número': num,
+    'Timbrado': n(f.timbrado),
+    'RUC emisor': f.rucEmisor,
+    'DV emisor': f.dvEmisor,
+    'Razón social': n(f.razonSocial),
+    'Cuenta': n(f.cuenta),
+    'Descripción': n(f.descripcion),
+    'Condición': n(f.condicion),
+    'Gravada 10 %': n(f.total10),
+    'Gravada 5 %': n(f.total5),
+    'Exenta': n(f.exenta),
+    'Total (Gs)': f.total,
+    'IVA (Gs)': f.iva,
+    'Tipo': f.tipo || 'QR',
+    'Origen de los datos': f.origen || 'QR',
+    'Excluir de conciliación': f.excluirConciliacion ? 'Sí' : 'No',
+    'Estado': 'Pendiente Marangatu',
+    'RUC receptor': n(f.rucReceptor),
     'Período': f.periodo,
     'Tipo doc': n(f.tipoDoc),
     'Establecimiento': f.establecimiento || num.slice(0, 3),
     'Punto': f.punto || num.slice(4, 7),
-    'RUC emisor': f.rucEmisor,
-    'DV emisor': f.dvEmisor,
-    'RUC receptor': n(f.rucReceptor),
-    'Total (Gs)': f.total,
-    'IVA (Gs)': f.iva,
     'Ítems': n(f.items),
     'Versión XML': n(f.version),
     'Fecha de lectura': f.leidoEl,
-    'Estado': 'Pendiente Marangatu',
     'Enlace QR': n(f.enlace),
-    'Tipo': f.tipo || 'QR',
-    'Excluir de conciliación': f.excluirConciliacion ? 'Sí' : 'No',
-    'Origen de los datos': f.origen || 'QR',
-    'Razón social': n(f.razonSocial),
-    'Timbrado': n(f.timbrado),
-    'Condición': n(f.condicion),
-    'Gravada 5 %': n(f.total5),
-    'Gravada 10 %': n(f.total10),
-    'Exenta': n(f.exenta)
+    'CDC': f.cdc || ''
   };
 }
 
@@ -380,6 +513,8 @@ if (typeof module !== 'undefined') {
     TIPOS, ORIGENES, CAMPOS_IA, PROMPT_IA, ESQUEMA_IA,
     excluirPorDefecto, montoFlexible, separarRuc, formatearNumero, normalizarFecha, normalizarCondicion,
     claveFactura, datosDeCdc, validarFactura, normalizarIA, completarFactura, extraerJson,
-    rucBase, rucCoincide, validarCliente
+    rucBase, rucCoincide, validarCliente,
+    CUENTAS_COMPRA, CUENTAS, MAX_DESCRIPCION, normalizarCuenta, normalizarDescripcion, validarComplementos, faltantes,
+    armarPromptIA, memoriaVacia, sugerenciaProveedor, recordarProveedor
   };
 }

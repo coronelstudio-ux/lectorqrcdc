@@ -51,10 +51,11 @@ prueba('parsearEnlace: rechaza enlaces que no son de factura', () => {
 });
 
 // ---------- Excel ----------
-const COLUMNAS = ['CDC', 'Número', 'Fecha emisión', 'Período', 'Tipo doc', 'Establecimiento', 'Punto', 'RUC emisor',
-  'DV emisor', 'RUC receptor', 'Total (Gs)', 'IVA (Gs)', 'Ítems', 'Versión XML', 'Fecha de lectura', 'Estado', 'Enlace QR',
-  'Tipo', 'Excluir de conciliación', 'Origen de los datos', 'Razón social', 'Timbrado', 'Condición', 'Gravada 5 %', 'Gravada 10 %', 'Exenta'];
-prueba('aFilaExcel: 17 columnas originales en orden y 9 nuevas al final', () => {
+const COLUMNAS = ['Fecha emisión', 'Número', 'Timbrado', 'RUC emisor', 'DV emisor', 'Razón social', 'Cuenta', 'Descripción',
+  'Condición', 'Gravada 10 %', 'Gravada 5 %', 'Exenta', 'Total (Gs)', 'IVA (Gs)', 'Tipo', 'Origen de los datos',
+  'Excluir de conciliación', 'Estado', 'RUC receptor', 'Período', 'Tipo doc', 'Establecimiento', 'Punto', 'Ítems',
+  'Versión XML', 'Fecha de lectura', 'Enlace QR', 'CDC'];
+prueba('aFilaExcel: 28 columnas, datos principales primero y CDC al final', () => {
   const f = p.parsearEnlace(enlace(cdcSintetico(), '2026-11-02'), '2026-11').factura;
   assert.deepStrictEqual(Object.keys(p.aFilaExcel(f)), COLUMNAS);
   const fila = p.aFilaExcel(f);
@@ -66,13 +67,17 @@ prueba('aFilaExcel: 17 columnas originales en orden y 9 nuevas al final', () => 
 prueba('aFilaExcel: factura manual sin CDC', () => {
   const fila = p.aFilaExcel({ tipo: 'Manual', origen: 'Manual', excluirConciliacion: true, numeroCompleto: '001-003-0000456',
     fecha: '2026-11-10', periodo: '2026-11', rucEmisor: '1234567', dvEmisor: '8', total: 33000, iva: 3000,
-    total5: 0, total10: 33000, exenta: 0, timbrado: '12345678', condicion: 'Contado', razonSocial: 'Comercio Ejemplo' });
+    total5: 0, total10: 33000, exenta: 0, timbrado: '12345678', condicion: 'Contado', razonSocial: 'Comercio Ejemplo',
+    cuenta: 'ÚTILES DE OFICINA', descripcion: 'CUADERNOS' });
   assert.deepStrictEqual(Object.keys(fila), COLUMNAS);
   assert.strictEqual(fila['CDC'], '');
   assert.strictEqual(fila['Establecimiento'], '001');
   assert.strictEqual(fila['Punto'], '003');
   assert.strictEqual(fila['Excluir de conciliación'], 'Sí');
   assert.strictEqual(fila['Enlace QR'], '');
+  assert.strictEqual(fila['Cuenta'], 'ÚTILES DE OFICINA');
+  assert.strictEqual(fila['Descripción'], 'CUADERNOS');
+  assert.strictEqual(fila['Timbrado'], '12345678');
 });
 
 // ---------- Valores por defecto ----------
@@ -132,7 +137,8 @@ prueba('claveFactura: número + RUC + fecha + total para manuales', () => {
 // ---------- validarFactura ----------
 const base = () => ({
   tipo: 'Manual', origen: 'Manual', rucEmisor: '1234567', dvEmisor: '8', numeroCompleto: '001-001-0000010',
-  fecha: '2026-11-15', total5: 21000, total10: 55000, exenta: 4000, total: 80000, iva: 6000, cdc: ''
+  fecha: '2026-11-15', total5: 21000, total10: 55000, exenta: 4000, total: 80000, iva: 6000, cdc: '',
+  timbrado: '12345678', cuenta: 'COSTO DE MERCADERÍAS GRAVADAS POR EL IVA', descripcion: 'MERCADERÍAS VARIAS'
 });
 prueba('validarFactura: factura correcta', () => {
   const r = p.validarFactura(base(), '2026-11');
@@ -177,7 +183,8 @@ prueba('normalizarIA: respuesta completa', () => {
   const f = p.normalizarIA({
     tipo: 'Manual', rucEmisor: '1234567', dvEmisor: '8', razonSocial: 'Comercio Ejemplo SA', rucReceptor: '0001234500-1', numeroCompleto: '1-1-10',
     fecha: '15/11/2026', timbrado: '12345678', condicion: 'CONTADO', total5: '21.000', total10: 55000, exenta: 4000,
-    total: '80.000', iva: 6000, cdc: null, revisar: ['timbrado', 'clave_inventada']
+    total: '80.000', iva: 6000, cdc: null, cuenta: 'costo de mercaderias gravadas por el iva', descripcion: 'Bebidas varias',
+    revisar: ['timbrado', 'clave_inventada']
   });
   assert.strictEqual(f.tipo, 'Manual');
   assert.strictEqual(f.origen, 'IA');
@@ -190,6 +197,8 @@ prueba('normalizarIA: respuesta completa', () => {
   assert.strictEqual(f.total, 80000);
   assert.deepStrictEqual(f.revisar, ['timbrado']);
   assert.strictEqual(f.rucReceptor, '1234500');
+  assert.strictEqual(f.cuenta, 'COSTO DE MERCADERÍAS GRAVADAS POR EL IVA');
+  assert.strictEqual(f.descripcion, 'BEBIDAS VARIAS');
   assert.ok(p.validarFactura(f, '2026-11').ok);
   assert.ok(p.validarFactura(f, '2026-11', '1234500').ok);
   assert.ok(p.validarFactura(f, '2026-11', '7777777').errores.rucReceptor);
@@ -209,7 +218,8 @@ prueba('normalizarIA: campos ausentes quedan en null y marcados', () => {
 prueba('normalizarIA: electrónica sin QR completa datos desde el CDC', () => {
   const cdc = cdcSintetico('20261120', '0000777');
   const f = p.normalizarIA({ tipo: null, cdc: cdc.replace(/(\d{4})/g, '$1 '), rucEmisor: null, dvEmisor: null,
-    numeroCompleto: null, fecha: null, total10: 11000, total5: 0, exenta: 0, total: 11000, iva: 1000, revisar: [] });
+    numeroCompleto: null, fecha: null, total10: 11000, total5: 0, exenta: 0, total: 11000, iva: 1000, revisar: [],
+    timbrado: '87654321', cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'NAFTA' });
   assert.strictEqual(f.tipo, 'Electrónica sin QR');
   assert.strictEqual(f.excluirConciliacion, false);
   assert.strictEqual(f.cdc, cdc);
@@ -290,6 +300,58 @@ prueba('validarFactura: exige RUC receptor cuando hay cliente', () => {
 prueba('completarFactura: conserva el cliente y deja vacío si no hay', () => {
   assert.strictEqual(p.completarFactura({ cdc: cdcSintetico(), clienteId: 'c1' }).clienteId, 'c1');
   assert.strictEqual(p.completarFactura({ cdc: cdcSintetico() }).clienteId, '');
+});
+
+// ---------- Cuenta, descripción y timbrado ----------
+prueba('CUENTAS: listado de compras sin repetidos y con el texto de ContAdis', () => {
+  assert.strictEqual(new Set(p.CUENTAS).size, p.CUENTAS.length);
+  assert.ok(p.CUENTAS.includes('COMBUSTIBLES Y LUBRICANES'));
+  assert.ok(p.CUENTAS.includes('(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AGROPECUARIO'));
+  assert.ok(!p.CUENTAS.includes('SUELDOS Y JORNALES')); // no viene de una factura de compra
+  assert.ok(!p.CUENTAS.some(c => c.startsWith('VENTAS')));
+});
+prueba('normalizarCuenta: sin importar mayúsculas, acentos ni espacios', () => {
+  assert.strictEqual(p.normalizarCuenta('utiles de  oficina'), 'ÚTILES DE OFICINA');
+  assert.strictEqual(p.normalizarCuenta('Agua, luz, telefono e internet'), 'AGUA, LUZ, TELÉFONO E INTERNET');
+  assert.strictEqual(p.normalizarCuenta('CUENTA INVENTADA'), '');
+  assert.strictEqual(p.normalizarCuenta(null), '');
+});
+prueba('normalizarDescripcion: mayúsculas, sin espacios dobles y hasta 60 caracteres', () => {
+  assert.strictEqual(p.normalizarDescripcion('  galletitas   dulces '), 'GALLETITAS DULCES');
+  assert.strictEqual(p.normalizarDescripcion('x'.repeat(80)).length, p.MAX_DESCRIPCION);
+});
+prueba('validarComplementos y faltantes: timbrado de 8 dígitos, cuenta del listado y descripción', () => {
+  assert.deepStrictEqual(p.faltantes(base()), []);
+  assert.deepStrictEqual(p.faltantes({}), ['timbrado', 'cuenta', 'descripción']);
+  assert.ok(p.validarComplementos(Object.assign(base(), { timbrado: '1234567' })).timbrado);
+  assert.ok(p.validarComplementos(Object.assign(base(), { cuenta: 'OTRA' })).cuenta);
+  assert.ok(p.validarComplementos(Object.assign(base(), { descripcion: 'x'.repeat(61) })).descripcion);
+  assert.ok(p.validarFactura(Object.assign(base(), { timbrado: '' }), '2026-11').errores.timbrado);
+});
+prueba('normalizarIA: cuenta fuera del listado queda vacía y marcada', () => {
+  const f = p.normalizarIA({ tipo: 'Manual', cuenta: 'GASTOS VARIOS', descripcion: null, timbrado: '123' });
+  assert.strictEqual(f.cuenta, '');
+  for (const c of ['cuenta', 'descripcion', 'timbrado']) assert.ok(f.revisar.includes(c), 'falta marcar ' + c);
+});
+prueba('armarPromptIA: incluye actividades y todas las cuentas', () => {
+  const t = p.armarPromptIA('Despensa y venta de bebidas');
+  assert.ok(t.includes('Actividades del cliente: Despensa y venta de bebidas'));
+  for (const c of p.CUENTAS) assert.ok(t.includes(c), 'falta ' + c);
+  assert.ok(p.armarPromptIA('').includes('Actividades del cliente: no informadas'));
+});
+prueba('ESQUEMA_IA: la cuenta solo puede ser del listado', () => {
+  assert.deepStrictEqual(p.ESQUEMA_IA.properties.cuenta.anyOf[0].enum, p.CUENTAS);
+});
+prueba('memoria por proveedor: timbrado global y cuenta por cliente', () => {
+  let m = p.memoriaVacia();
+  m = p.recordarProveedor(m, 'c1', { rucEmisor: '080000001', timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'nafta' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c1', '80000001'), { timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'NAFTA' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c2', '80000001'), { timbrado: '12345678', cuenta: '', descripcion: '' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(null, 'c1', '1'), { timbrado: '', cuenta: '', descripcion: '' });
+  // Datos inválidos no se recuerdan
+  m = p.recordarProveedor(m, 'c1', { rucEmisor: '80000001', timbrado: '99', cuenta: 'OTRA', descripcion: 'x' });
+  assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').timbrado, '12345678');
+  assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').cuenta, 'COMBUSTIBLES Y LUBRICANES');
 });
 
 console.log(fallas.join('\n\n'));
