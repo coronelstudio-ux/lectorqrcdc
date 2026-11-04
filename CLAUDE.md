@@ -13,7 +13,7 @@ Es la primera etapa de un flujo mayor:
 Por ahora solo se trabaja con **compras**. No tocar ventas.
 
 ## Reglas de negocio
-- **Clientes:** el usuario atiende varios contribuyentes. Cada cliente tiene `id`, `nombre`, `ruc` (sin DV ni ceros a la izquierda) y `dv`. Siempre hay un cliente elegido (selector en el encabezado); la lista, los totales y el Excel son del cliente y el período elegidos. Cada factura guarda `clienteId`.
+- **Clientes:** el usuario atiende varios contribuyentes. Cada cliente tiene `id`, `nombre`, `ruc` (sin DV ni ceros a la izquierda), `dv` y `actividades` (texto libre, máx. 500). Siempre hay un cliente elegido (selector en el encabezado); la lista, los totales y el Excel son del cliente y el período elegidos. Cada factura guarda `clienteId`.
 - **RUC receptor:** la factura debe ser del cliente elegido. QR: se compara `dRucRec` con el RUC del cliente (`rucCoincide`, sin DV ni ceros); si no coincide o falta, se rechaza como una de otro mes (si es de otro cliente registrado, el aviso lo nombra). IA y a mano: campo "RUC receptor (cliente)" en el formulario, precargado con el cliente y validado por `validarFactura(f, periodo, rucCliente)`.
 - **Período mensual:** la app solo acepta facturas del mes elegido (campo `periodo`, formato AAAA-MM, tomado de `dFeEmiDE`). Las de otros meses se rechazan y no entran en la lista ni en el Excel.
 - **Identificador único:** el CDC de 44 dígitos. Se usa para evitar duplicados y para cruzar con Marangatu.
@@ -25,6 +25,13 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - **Excluir de conciliación:** casilla por factura. Por defecto: QR = no, Electrónica sin QR = no, Manual = sí (`excluirPorDefecto`). La conciliación con Marangatu no está implementada; solo debe respetar esta casilla.
 - **La IA nunca guarda sola:** siempre se abre el formulario de revisión con los campos dudosos (`revisar`) en ámbar y las validaciones en vivo; solo "Confirmar" agrega la factura.
 - **Validaciones (`validarFactura`):** total = 5 % + 10 % + exenta; RUC con DV (1 a 8 dígitos, guion, 1 dígito); fecha real y dentro del período; número `000-000-0000000`; IVA = gravada 10 %/11 + gravada 5 %/21 con tolerancia de 1 Gs por tasa; si hay CDC, debe coincidir con número, RUC y fecha.
+- **Cuenta, descripción y timbrado (obligatorios en todas las facturas):** no vienen en el QR.
+  - **Cuenta:** una de `CUENTAS_COMPRA` (52 cuentas de ContAdis que puede llevar una compra, con su texto exacto, incluidos errores como "LUBRICANES"). Se excluyen ventas, ingresos, sueldos, aportes, previsiones, depreciaciones, amortizaciones y diferencias de cambio. Mercaderías = "COSTO DE MERCADERÍAS GRAVADAS POR EL IVA" (o "…EXENTAS DEL IVA" si todo es exento).
+  - **Descripción:** en mayúsculas, máximo 60 caracteres y general: un ítem tal como figura; varios del mismo tipo, el tipo ("GALLETITAS", "BEBIDAS VARIAS"); de distintos tipos, "MERCADERÍAS VARIAS".
+  - **Timbrado:** 8 dígitos (`validarComplementos`).
+  - QR: al leer, la cámara se pausa y se abre la ventana **Completar** (cuenta, descripción, timbrado). La app recuerda por proveedor el timbrado (global) y la cuenta y descripción (por cliente), y los sugiere (`sugerenciaProveedor` / `recordarProveedor`, clave `lectorQR_proveedores`). Con un proveedor conocido basta tocar Guardar. Cancelar descarta la factura.
+  - IA: elige cuenta y descripción con el detalle y las **actividades del cliente** (texto libre en el perfil). El prompt (`armarPromptIA`) lleva solo el listado de compras; en Claude la cuenta está limitada por `enum` en `ESQUEMA_IA`.
+  - El Excel no se genera si alguna factura del cliente y período no tiene cuenta, descripción o timbrado válidos (`faltantes`); se completan desde el lápiz de cada tarjeta en la Lista.
 - **Montos escritos a mano o por la IA:** `montoFlexible` convierte `139.900` (solo puntos de miles) en 139900 y el resto lo pasa a `parseMonto` sin cambiar su regla.
 
 ## Privacidad (importante)
@@ -36,7 +43,7 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 ## Arquitectura
 - `index.html`: interfaz. Carga jsQR y SheetJS desde CDN, y luego `parser.js` y `app.js`.
 - `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`, y para facturas sin QR `validarFactura`, `normalizarIA`, `claveFactura`, `completarFactura`, `montoFlexible`, `PROMPT_IA`, `ESQUEMA_IA`. Exporta con `module.exports` si existe `module`, para probar con Node.
-- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_clientes`, `lectorQR_cliente`, `lectorQR_periodo`, `lectorQR_sonido`, `lectorQR_camara`, `lectorQR_ia` y las API keys `lectorQR_clave_gemini` / `lectorQR_clave_claude`). Al cargar, `completarFactura` migra listas viejas (tipo y origen `QR`, sin cliente).
+- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_clientes`, `lectorQR_cliente`, `lectorQR_proveedores`, `lectorQR_periodo`, `lectorQR_sonido`, `lectorQR_camara`, `lectorQR_ia` y las API keys `lectorQR_clave_gemini` / `lectorQR_clave_claude`). Al cargar, `completarFactura` migra listas viejas (tipo y origen `QR`, sin cliente).
 - Facturas sin cliente (de versiones anteriores): no se muestran. Al crear un cliente se le asignan las que tienen su RUC receptor; si es el primer cliente, también las que no tienen RUC receptor (`asignarHuerfanas`). La hoja de clientes avisa cuántas quedan y con qué RUC.
 - Sin clientes, la app abre la hoja "Clientes" al iniciar y no deja escanear ni cargar hasta crear uno. Borrar un cliente borra sus facturas (con confirmación). El RUC de un cliente con facturas no se puede cambiar, solo el nombre.
 - `manifest.webmanifest`, `sw.js` e `icons/`: app instalable (PWA) que funciona sin internet.
@@ -49,7 +56,7 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - Linterna y zoom solo aparecen si la cámara los soporta (`getCapabilities`).
 - Leer QR desde una foto de la galería (misma detección que la cámara).
 - Barra de Escanear: Foto · Sin QR · cámara · Enlace · A mano. **Sin QR** abre la lectura con IA (foto o galería, o copiar y pegar); **A mano** abre el formulario vacío.
-- En la lista, cada tarjeta muestra tipo, origen y la casilla "Excluir de conciliación".
+- En la lista, cada tarjeta muestra tipo, origen, cuenta, descripción, timbrado y la casilla "Excluir de conciliación". Las incompletas van primero, en ámbar, con "Falta: …" y el lápiz para completarlas.
 - Botón para cambiar entre cámara trasera y frontal (solo si hay más de una). La frontal se ve en espejo; la app recuerda la última elegida.
 - La cámara se apaga al salir de la pestaña Escanear.
 - Tema claro u oscuro según el sistema; la vista de cámara siempre es oscura.
@@ -85,9 +92,9 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - **No se usa `navigator.share`**: Chrome Android no permite compartir `.xlsx` (solo imágenes, PDF, texto, etc.) y daba error de permiso. El usuario pidió reemplazarlo por guardar.
 
 ## Columnas del Excel (orden fijo, no cambiar sin avisar)
-CDC · Número · Fecha emisión · Período · Tipo doc · Establecimiento · Punto · RUC emisor · DV emisor · RUC receptor · Total (Gs) · IVA (Gs) · Ítems · Versión XML · Fecha de lectura · Estado · Enlace QR · **Tipo · Excluir de conciliación · Origen de los datos · Razón social · Timbrado · Condición · Gravada 5 % · Gravada 10 % · Exenta**
+Fecha emisión · Número · Timbrado · RUC emisor · DV emisor · Razón social · Cuenta · Descripción · Condición · Gravada 10 % · Gravada 5 % · Exenta · Total (Gs) · IVA (Gs) · Tipo · Origen de los datos · Excluir de conciliación · Estado · RUC receptor · Período · Tipo doc · Establecimiento · Punto · Ítems · Versión XML · Fecha de lectura · Enlace QR · CDC
 
-Las 9 últimas se agregaron al final (aprobado por el usuario) para no romper el script de ContAdis. En facturas QR, razón social, timbrado, condición y desglose quedan vacíos. "Excluir de conciliación" sale como `Sí` / `No`.
+28 columnas, orden aprobado por el usuario: primero los datos principales (cuenta, descripción y timbrado junto a los datos del proveedor) y el CDC al final. En facturas QR, razón social, condición y desglose quedan vacíos. "Excluir de conciliación" sale como `Sí` / `No`. Para el script de ContAdis conviene comparar las cuentas sin acentos ni mayúsculas.
 
 ## Estructura del enlace QR (e-Kuatia)
 `https://ekuatia.set.gov.py/consultas/qr?nVersion=…&Id=<CDC>&dFeEmiDE=<fecha en hex>&dRucRec=…&dTotGralOpe=…&dTotIVA=…&cItems=…&DigestValue=…&IdCSC=0001&cHashQR=…`

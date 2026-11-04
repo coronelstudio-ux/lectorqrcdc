@@ -22,13 +22,19 @@ En el visor, el botón de cámara con flechas cambia entre la cámara trasera y 
 - Si una factura tiene otro RUC receptor (es de otro cliente) se rechaza. Si ese RUC es de otro cliente registrado, el aviso dice cuál.
 - Las facturas guardadas antes de esta versión se asignan solas al crear el cliente con su RUC receptor.
 
+## Cuenta, descripción y timbrado
+- Son obligatorios en todas las facturas. Al leer un QR, la cámara se pausa y aparece **Completar**: eliges la cuenta de ContAdis, escribes la descripción y el timbrado del proveedor.
+- La app recuerda lo último usado con cada proveedor y lo sugiere: con un proveedor conocido basta tocar **Guardar**.
+- Con IA, la cuenta y la descripción las propone la IA según el detalle y las **actividades del cliente** (se cargan en el perfil del cliente).
+- El Excel no se genera hasta que todas las facturas del período tengan esos datos; las que faltan aparecen primero en la Lista, en ámbar, con el lápiz para completarlas.
+
 ## Facturas sin QR (lectura con IA)
 1. En **Exportar → Lectura con IA**, elige el proveedor (Gemini, Claude o copiar y pegar) y pega tu API key. Se guarda solo en el celular.
 2. En **Escanear**, toca **Sin QR** y saca una foto de la factura (o elígela de la galería).
 3. Revisa el formulario: los campos en ámbar son dudosos y los errores salen en rojo (sumas, IVA, RUC, número, fecha del período). Nada se guarda hasta que tocas **Confirmar**.
 4. **A mano** abre el mismo formulario vacío para cargar una factura sin IA.
 
-Cada factura tiene la casilla **Excluir de conciliación** (por defecto marcada solo en las manuales). El Excel suma al final las columnas Tipo, Excluir de conciliación, Origen de los datos, Razón social, Timbrado, Condición, Gravada 5 %, Gravada 10 % y Exenta.
+Cada factura tiene la casilla **Excluir de conciliación** (por defecto marcada solo en las manuales). El Excel tiene 28 columnas: primero fecha, número, timbrado, proveedor, cuenta, descripción, condición, montos e IVA; el CDC va al final.
 
 ## Pruebas
 ```
