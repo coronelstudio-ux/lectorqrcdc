@@ -13,6 +13,8 @@ Es la primera etapa de un flujo mayor:
 Por ahora solo se trabaja con **compras**. No tocar ventas.
 
 ## Reglas de negocio
+- **Clientes:** el usuario atiende varios contribuyentes. Cada cliente tiene `id`, `nombre`, `ruc` (sin DV ni ceros a la izquierda) y `dv`. Siempre hay un cliente elegido (selector en el encabezado); la lista, los totales y el Excel son del cliente y el período elegidos. Cada factura guarda `clienteId`.
+- **RUC receptor:** la factura debe ser del cliente elegido. QR: se compara `dRucRec` con el RUC del cliente (`rucCoincide`, sin DV ni ceros); si no coincide o falta, se rechaza como una de otro mes (si es de otro cliente registrado, el aviso lo nombra). IA y a mano: campo "RUC receptor (cliente)" en el formulario, precargado con el cliente y validado por `validarFactura(f, periodo, rucCliente)`.
 - **Período mensual:** la app solo acepta facturas del mes elegido (campo `periodo`, formato AAAA-MM, tomado de `dFeEmiDE`). Las de otros meses se rechazan y no entran en la lista ni en el Excel.
 - **Identificador único:** el CDC de 44 dígitos. Se usa para evitar duplicados y para cruzar con Marangatu.
 - **Montos paraguayos:** el enlace trae `139.900,0000` (punto = miles, coma = decimales) o `1090.909091` (punto decimal). `parseMonto` acepta ambos. No cambiar esta regla.
@@ -34,11 +36,14 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 ## Arquitectura
 - `index.html`: interfaz. Carga jsQR y SheetJS desde CDN, y luego `parser.js` y `app.js`.
 - `parser.js`: funciones puras (sin DOM): `parseMonto`, `hexToStr`, `parsearEnlace`, `aFilaExcel`, y para facturas sin QR `validarFactura`, `normalizarIA`, `claveFactura`, `completarFactura`, `montoFlexible`, `PROMPT_IA`, `ESQUEMA_IA`. Exporta con `module.exports` si existe `module`, para probar con Node.
-- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_periodo`, `lectorQR_sonido`, `lectorQR_camara`, `lectorQR_ia` y las API keys `lectorQR_clave_gemini` / `lectorQR_clave_claude`). Al cargar, `completarFactura` migra listas viejas (tipo y origen `QR`).
+- `app.js`: cámara, detección, lista por período y guardado del Excel. Todo el estado está en la variable `lista` y en `localStorage` (claves `lectorQR_lista`, `lectorQR_clientes`, `lectorQR_cliente`, `lectorQR_periodo`, `lectorQR_sonido`, `lectorQR_camara`, `lectorQR_ia` y las API keys `lectorQR_clave_gemini` / `lectorQR_clave_claude`). Al cargar, `completarFactura` migra listas viejas (tipo y origen `QR`, sin cliente).
+- Facturas sin cliente (de versiones anteriores): no se muestran. Al crear un cliente se le asignan las que tienen su RUC receptor; si es el primer cliente, también las que no tienen RUC receptor (`asignarHuerfanas`). La hoja de clientes avisa cuántas quedan y con qué RUC.
+- Sin clientes, la app abre la hoja "Clientes" al iniciar y no deja escanear ni cargar hasta crear uno. Borrar un cliente borra sus facturas (con confirmación). El RUC de un cliente con facturas no se puede cambiar, solo el nombre.
 - `manifest.webmanifest`, `sw.js` e `icons/`: app instalable (PWA) que funciona sin internet.
 
 ### Interfaz
 - Tres pestañas con navegación inferior: **Escanear** (cámara a pantalla completa con visor y línea de barrido), **Lista** (tarjetas con búsqueda y borrado individual) y **Exportar** (resumen del período y botón Guardar Excel).
+- Encabezado: logo · **cliente** (abre la hoja Clientes: elegir, agregar, editar, borrar) · instalar · período. En pantallas de 480 px o menos se oculta el nombre de la app.
 - El período se elige desde la etiqueta del encabezado (input `month` invisible encima).
 - Respuesta de cada lectura: aviso de color (verde registrada, ámbar duplicada, rojo error u otro mes), destello del visor, vibración y pitido (Web Audio, se puede silenciar).
 - Linterna y zoom solo aparecen si la cámara los soporta (`getCapabilities`).
@@ -74,7 +79,7 @@ Por ahora solo se trabaja con **compras**. No tocar ventas.
 - `PROMPT_IA` pide solo JSON con las claves del esquema y `null` para lo que no aparece (sin estimar). `normalizarIA` limpia la respuesta, completa datos desde el CDC y marca dudosos.
 
 ### Excel (guardar en el celular)
-- SheetJS genera el `.xlsx` en memoria con el nombre `QR_facturas_AAAA-MM.xlsx`.
+- Un Excel por cliente: SheetJS genera el `.xlsx` en memoria con el nombre `QR_facturas_<RUC cliente>_<AAAA-MM>.xlsx`, solo con las facturas del cliente y el período elegidos. La columna "RUC receptor" identifica al cliente (en las facturas sin QR se llena desde el formulario).
 - Si existe `showSaveFilePicker`, se abre "Guardar como" para elegir carpeta (puede ser de Google Drive). Si el usuario cancela, no se hace nada.
 - Si no existe o falla, se descarga con `<a download>` a la carpeta Descargas. En Chrome se puede activar "Preguntar dónde guardar los archivos" para elegir la carpeta.
 - **No se usa `navigator.share`**: Chrome Android no permite compartir `.xlsx` (solo imágenes, PDF, texto, etc.) y daba error de permiso. El usuario pidió reemplazarlo por guardar.

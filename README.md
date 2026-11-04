@@ -16,6 +16,12 @@ Lee en tiempo real el QR de las facturas electrónicas (e-Kuatia / SIFEN) con la
 
 En el visor, el botón de cámara con flechas cambia entre la cámara trasera y la frontal.
 
+## Varios clientes
+- Toca el **cliente** en el encabezado para elegirlo, agregar uno (nombre y RUC con DV), editarlo o borrarlo. La primera vez la app pide crear el primero.
+- La lista, los totales y el Excel son del cliente y el período elegidos. El Excel se llama `QR_facturas_<RUC>_<AAAA-MM>.xlsx`.
+- Si una factura tiene otro RUC receptor (es de otro cliente) se rechaza. Si ese RUC es de otro cliente registrado, el aviso dice cuál.
+- Las facturas guardadas antes de esta versión se asignan solas al crear el cliente con su RUC receptor.
+
 ## Facturas sin QR (lectura con IA)
 1. En **Exportar → Lectura con IA**, elige el proveedor (Gemini, Claude o copiar y pegar) y pega tu API key. Se guarda solo en el celular.
 2. En **Escanear**, toca **Sin QR** y saca una foto de la factura (o elígela de la galería).
