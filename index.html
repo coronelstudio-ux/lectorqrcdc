@@ -258,7 +258,7 @@
   .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 10px; }
   .campo { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
   .form .ancho { grid-column: 1 / -1; }
-  .campo input, .campo select, .ajustes input, .ajustes select {
+  .campo input, .campo select, .campo textarea, .ajustes input, .ajustes select {
     width: 100%; padding: 10px; font-size: 16px; border-radius: 10px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--text); font-family: inherit;
   }
@@ -281,6 +281,14 @@
   .tarjeta .casilla { font-size: 13px; padding: 8px 0 0; color: var(--muted); }
   .tarjeta .casilla input { width: 18px; height: 18px; }
   .tarjeta.excluida { opacity: .72; }
+  .tarjeta.incompleta { border-color: var(--warn); }
+  .tarjeta .fila2.cuenta { color: var(--text); font-weight: 500; }
+  .tarjeta .acciones { display: flex; flex-direction: column; gap: 4px; flex: none; }
+  .tarjeta .editar-f { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
+  .tarjeta .editar-f svg { width: 20px; height: 20px; }
+  .campo textarea { min-height: 70px; resize: vertical; font-size: 15px; }
+  .campo select optgroup { font-weight: 700; }
+  #f_descripcion, #k_descripcion { text-transform: uppercase; }
 
   /* Ajustes de IA */
   .ajustes { display: grid; gap: 10px; }
@@ -387,6 +395,7 @@
           <div class="metrica"><span>IVA (Gs)</span><b id="expIva">0</b></div>
           <div class="metrica"><span>Para conciliar</span><b id="expConciliar">0</b></div>
           <div class="metrica"><span>Excluidas</span><b id="expExcluidas">0</b></div>
+          <div class="metrica ancha"><span>Incompletas (sin cuenta, descripción o timbrado)</span><b id="expIncompletas">0</b></div>
           <div class="metrica ancha"><span>Estado</span><b>Pendiente Marangatu</b></div>
         </div>
       </div>
@@ -482,11 +491,28 @@
   <div class="form">
     <label class="campo ancho"><span>Nombre o razón social</span><input id="c_nombre" autocomplete="off"><small></small></label>
     <label class="campo ancho"><span>RUC con DV</span><input id="c_ruc" inputmode="numeric" placeholder="0000000-0" autocomplete="off"><small></small></label>
+    <label class="campo ancho"><span>Actividades (la IA las usa para elegir la cuenta)</span><textarea id="c_actividades" maxlength="500" placeholder="Ej.: Despensa. Venta de bebidas."></textarea><small></small></label>
   </div>
   <p class="nota" id="cliNotaRuc" hidden>El RUC no se puede cambiar porque el cliente ya tiene facturas guardadas.</p>
   <div class="botones fijos">
     <button class="boton suave" id="btnCancelarCli">Cerrar</button>
     <button class="boton" id="btnGuardarCli">Agregar cliente</button>
+  </div>
+</div>
+
+<div class="hoja alta" id="hojaCompletar" role="dialog" aria-label="Completar factura">
+  <div class="asa"></div>
+  <h2 id="compTitulo">Completar factura</h2>
+  <p class="subtitulo" id="compResumen"></p>
+  <div class="form">
+    <label class="campo ancho"><span>Cuenta</span><select id="k_cuenta" class="sel-cuenta"></select><small></small></label>
+    <label class="campo ancho"><span>Descripción</span><input id="k_descripcion" maxlength="60" autocomplete="off" placeholder="Ej.: MERCADERÍAS VARIAS"><small></small></label>
+    <label class="campo ancho"><span>Timbrado del proveedor</span><input id="k_timbrado" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="8 dígitos"><small></small></label>
+  </div>
+  <p class="nota" id="compNota"></p>
+  <div class="botones fijos">
+    <button class="boton suave" id="btnCancelarComp">Cancelar</button>
+    <button class="boton" id="btnGuardarComp">Guardar</button>
   </div>
 </div>
 
@@ -531,6 +557,8 @@
     <label class="campo"><span>Timbrado</span><input id="f_timbrado" inputmode="numeric"><small></small></label>
     <label class="campo ancho"><span>Razón social</span><input id="f_razonSocial"><small></small></label>
     <label class="campo ancho"><span>RUC receptor (cliente)</span><input id="f_rucReceptor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
+    <label class="campo ancho"><span>Cuenta</span><select id="f_cuenta" class="sel-cuenta"></select><small></small></label>
+    <label class="campo ancho"><span>Descripción</span><input id="f_descripcion" maxlength="60" autocomplete="off" placeholder="Ej.: MERCADERÍAS VARIAS"><small></small></label>
     <label class="campo"><span>Número</span><input id="f_numeroCompleto" inputmode="numeric" placeholder="000-000-0000000"><small></small></label>
     <label class="campo"><span>Fecha</span><input type="date" id="f_fecha"><small></small></label>
     <label class="campo"><span>Condición</span>

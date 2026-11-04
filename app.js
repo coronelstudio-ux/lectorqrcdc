@@ -5,6 +5,7 @@ const KEY_CAMARA = 'lectorQR_camara';
 const KEY_IA = 'lectorQR_ia';
 const KEY_CLIENTES = 'lectorQR_clientes';
 const KEY_CLIENTE = 'lectorQR_cliente';
+const KEY_PROVEEDORES = 'lectorQR_proveedores';
 const KEY_CLAVE = { gemini: 'lectorQR_clave_gemini', claude: 'lectorQR_clave_claude' };
 const MODELOS = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-5-5' };
 const NOMBRE_IA = { gemini: 'Gemini', claude: 'Claude', manual: 'copiar y pegar' };
@@ -20,6 +21,10 @@ const el = {
   actualizar: $('actualizar'), btnActualizar: $('btnActualizar'), btnFoto: $('btnFoto'), archivoFoto: $('archivoFoto'), btnPegar: $('btnPegar'),
   contador: $('contador'), buscar: $('buscar'), tabla: $('tabla'), insignia: $('insignia'),
   expPeriodo: $('expPeriodo'), expCantidad: $('expCantidad'), expTotal: $('expTotal'), expIva: $('expIva'),
+  hojaCompletar: $('hojaCompletar'), compTitulo: $('compTitulo'), compResumen: $('compResumen'), compNota: $('compNota'),
+  kCuenta: $('k_cuenta'), kDescripcion: $('k_descripcion'), kTimbrado: $('k_timbrado'),
+  btnCancelarComp: $('btnCancelarComp'), btnGuardarComp: $('btnGuardarComp'),
+  cActividades: $('c_actividades'), expIncompletas: $('expIncompletas'),
   btnCliente: $('btnCliente'), clienteTexto: $('clienteTexto'), expCliente: $('expCliente'),
   hojaClientes: $('hojaClientes'), cliSubtitulo: $('cliSubtitulo'), cliLista: $('cliLista'), cliHuerfanas: $('cliHuerfanas'),
   cliFormTitulo: $('cliFormTitulo'), cNombre: $('c_nombre'), cRuc: $('c_ruc'), cliNotaRuc: $('cliNotaRuc'),
@@ -53,6 +58,8 @@ let lista = [];
 let clientes = [];        // [{ id, nombre, ruc, dv }]
 let clienteId = '';
 let editandoCliente = '';
+let memoria = memoriaVacia(); // lo último usado con cada proveedor (timbrado, cuenta, descripción)
+let completando = null;       // { modo: 'nuevo' | 'editar', f } mientras la ventana Completar está abierta
 let stream = null;
 let pista = null;
 let timer = null;
@@ -144,6 +151,19 @@ function cargarClientes() {
   clienteId = leerLS(KEY_CLIENTE) || '';
   if (!clienteActual()) clienteId = clientes.length ? clientes[0].id : '';
 }
+function cargarMemoria() {
+  try { memoria = JSON.parse(leerLS(KEY_PROVEEDORES) || 'null') || memoriaVacia(); } catch { memoria = memoriaVacia(); }
+  if (!memoria.timbrados || !memoria.cuentas) memoria = memoriaVacia();
+}
+function guardarMemoria() { escribirLS(KEY_PROVEEDORES, JSON.stringify(memoria)); }
+
+// Opciones del listado de cuentas (agrupadas) para las listas desplegables
+function pintarCuentas() {
+  const html = '<option value="">— Elige la cuenta —</option>' + CUENTAS_COMPRA.map(g =>
+    `<optgroup label="${esc(g.grupo)}">${g.cuentas.map(c => `<option>${esc(c)}</option>`).join('')}</optgroup>`).join('');
+  document.querySelectorAll('.sel-cuenta').forEach(sel => { sel.innerHTML = html; });
+}
+
 function guardarClientes() {
   escribirLS(KEY_CLIENTES, JSON.stringify(clientes));
   escribirLS(KEY_CLIENTE, clienteId);
@@ -198,34 +218,42 @@ function render() {
   const excluidas = items.filter(f => f.excluirConciliacion).length;
   el.expConciliar.textContent = items.length - excluidas;
   el.expExcluidas.textContent = excluidas;
+  el.expIncompletas.textContent = items.filter(f => faltantes(f).length).length;
 
   const q = el.buscar.value.trim().toLowerCase();
   const visibles = items
     .filter(f => !q || [f.numeroCompleto, f.rucEmisor, f.cdc, f.razonSocial].some(v => String(v || '').toLowerCase().includes(q)))
-    .slice().reverse(); // la más reciente arriba
+    .slice().reverse() // la más reciente arriba
+    .sort((a, b) => (faltantes(b).length ? 1 : 0) - (faltantes(a).length ? 1 : 0)); // las incompletas primero
 
   if (!visibles.length) {
     el.tabla.innerHTML = `<div class="vacio"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
       <p>${!cli ? 'Elige o crea un cliente para empezar.' : items.length ? 'Ninguna factura coincide con la búsqueda.' : 'Todavía no hay facturas de este cliente en el período.<br>Ve a Escanear para empezar.'}</p></div>`;
     return;
   }
-  el.tabla.innerHTML = visibles.map(f => `
-    <div class="tarjeta${f.excluirConciliacion ? ' excluida' : ''}">
+  el.tabla.innerHTML = visibles.map(f => { const falta = faltantes(f); return `
+    <div class="tarjeta${f.excluirConciliacion ? ' excluida' : ''}${falta.length ? ' incompleta' : ''}">
       <div class="avatar"><svg viewBox="0 0 24 24"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 1 .7V2l-1 .7-3-2-3 2-3-2-3 2-3-2z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
       <div class="datos">
         <div class="fila1"><span class="num">${esc(f.numeroCompleto)}</span><span class="monto">Gs. ${gs(f.total)}</span></div>
         <div class="fila2">${esc(f.fecha)} · RUC ${esc(f.rucEmisor)}-${esc(f.dvEmisor)} · IVA ${gs(f.iva)}</div>
         ${f.razonSocial ? `<div class="fila2">${esc(f.razonSocial)}</div>` : ''}
+        ${f.descripcion || f.cuenta ? `<div class="fila2 cuenta">${esc(f.descripcion || '—')} · ${esc(f.cuenta || 'sin cuenta')}</div>` : ''}
+        ${f.timbrado ? `<div class="fila2">Timbrado ${esc(f.timbrado)}</div>` : ''}
         ${f.cdc ? `<div class="cdc">${esc(f.cdc)}</div>` : ''}
         <div class="chips">
           <span class="chip">${esc(f.tipo)}</span>
           <span class="chip${f.origen === 'IA' ? ' ia' : ''}">Origen: ${esc(f.origen)}</span>
+          ${falta.length ? `<span class="chip dudas">Falta: ${esc(falta.join(', '))}</span>` : ''}
           ${f.excluirConciliacion ? '' : '<span class="etiqueta" style="margin:0">Pendiente Marangatu</span>'}
         </div>
         <label class="casilla"><input type="checkbox" class="excluir" data-id="${esc(f.id)}"${f.excluirConciliacion ? ' checked' : ''}>Excluir de conciliación</label>
       </div>
-      <button class="borrar" data-id="${esc(f.id)}" aria-label="Borrar factura"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
-    </div>`).join('');
+      <div class="acciones">
+        <button class="editar-f" data-id="${esc(f.id)}" aria-label="Completar o editar cuenta, descripción y timbrado"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+        <button class="borrar" data-id="${esc(f.id)}" aria-label="Borrar factura"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+      </div>
+    </div>`; }).join('');
 }
 
 function agregar(texto) {
@@ -248,11 +276,77 @@ function agregar(texto) {
     respuesta(`Ya estaba registrada: ${r.factura.numeroCompleto}`, 'warn');
     return false;
   }
-  lista.push(r.factura);
-  guardarLista();
-  render();
-  respuesta(`Registrada ${r.factura.numeroCompleto} · Gs. ${gs(r.factura.total)}`, 'ok');
+  // El QR no trae cuenta, descripción ni timbrado: se completan antes de guardar
+  destellarMarco('ok');
+  pitar('ok');
+  vibrar('ok');
+  abrirCompletar(r.factura, 'nuevo');
   return true;
+}
+
+// ---------- Ventana Completar (cuenta, descripción y timbrado) ----------
+
+function abrirCompletar(f, modo) {
+  const sug = sugerenciaProveedor(memoria, clienteId, f.rucEmisor);
+  completando = { modo, f };
+  el.compTitulo.textContent = modo === 'nuevo' ? 'QR leído: completa los datos' : 'Cuenta, descripción y timbrado';
+  el.compResumen.textContent = `${f.numeroCompleto} · RUC ${f.rucEmisor}-${f.dvEmisor}${f.razonSocial ? ' · ' + f.razonSocial : ''} · Gs. ${gs(f.total)}`;
+  el.kCuenta.value = f.cuenta || sug.cuenta;
+  el.kDescripcion.value = f.descripcion || sug.descripcion;
+  el.kTimbrado.value = f.timbrado || sug.timbrado;
+  const sugirio = (!f.cuenta && sug.cuenta) || (!f.timbrado && sug.timbrado);
+  el.compNota.textContent = sugirio ? 'Completado con lo último que usaste con este proveedor. Revisa y guarda.' : '';
+  abrirHoja(el.hojaCompletar);
+  const { ok } = validarCompletar();
+  setTimeout(() => {
+    const vacio = [el.kCuenta, el.kDescripcion, el.kTimbrado].find(i => !i.value);
+    (ok ? el.btnGuardarComp : vacio || el.kCuenta).focus();
+  }, 250);
+}
+
+function validarCompletar() {
+  const datos = {
+    cuenta: el.kCuenta.value,
+    descripcion: normalizarDescripcion(el.kDescripcion.value),
+    timbrado: el.kTimbrado.value.replace(/\D/g, '')
+  };
+  const errores = validarComplementos(datos);
+  for (const [c, input] of [['cuenta', el.kCuenta], ['descripcion', el.kDescripcion], ['timbrado', el.kTimbrado]]) {
+    const campo = input.closest('.campo');
+    const tocado = input.value !== '';
+    campo.classList.toggle('error', !!errores[c] && tocado);
+    campo.querySelector('small').textContent = tocado ? errores[c] || '' : '';
+  }
+  return { datos, ok: Object.keys(errores).length === 0, errores };
+}
+
+function guardarCompletar() {
+  if (!completando) return;
+  const { datos, ok, errores } = validarCompletar();
+  if (!ok) {
+    for (const [c, input] of [['cuenta', el.kCuenta], ['descripcion', el.kDescripcion], ['timbrado', el.kTimbrado]]) {
+      input.closest('.campo').classList.toggle('error', !!errores[c]);
+      input.closest('.campo').querySelector('small').textContent = errores[c] || '';
+    }
+    avisar('Completa cuenta, descripción y timbrado.', 'err');
+    return;
+  }
+  const { modo, f } = completando;
+  if (modo === 'nuevo' && lista.some(x => x.id === f.id)) {
+    completando = null; cerrarHoja();
+    respuesta(`Ya estaba registrada: ${f.numeroCompleto}`, 'warn');
+    return;
+  }
+  Object.assign(f, datos);
+  if (modo === 'nuevo') lista.push(f);
+  memoria = recordarProveedor(memoria, f.clienteId || clienteId, f);
+  guardarMemoria();
+  guardarLista();
+  completando = null;
+  cerrarHoja();
+  render();
+  if (modo === 'nuevo') respuesta(`Registrada ${f.numeroCompleto} · Gs. ${gs(f.total)}`, 'ok');
+  else avisar(`${f.numeroCompleto}: datos guardados.`, 'ok');
 }
 
 // Detección: nativa si existe (Chrome Android); si no, jsQR con el cuadro completo y luego el centro ampliado
@@ -314,7 +408,7 @@ async function iniciarCamara() {
   setEstado('Acerca el QR hasta que ocupe casi todo el recuadro.');
 
   timer = setInterval(async () => {
-    if (el.video.readyState < 2) return;
+    if (el.video.readyState < 2 || completando) return; // en pausa mientras se completa la factura
     try {
       const texto = await detectarEnFuente(el.video, el.video.videoWidth, el.video.videoHeight);
       if (!texto) return;
@@ -438,6 +532,14 @@ async function guardarExcel() {
   const items = listaDelPeriodo();
   if (!clienteActual()) { avisar('Elige primero el cliente.', 'err'); return; }
   if (!items.length) { avisar('No hay facturas de este cliente en el período.', 'err'); return; }
+  const incompletas = items.filter(f => faltantes(f).length);
+  if (incompletas.length) {
+    avisar(`Faltan datos en ${incompletas.length} factura(s). Complétalas en la Lista (marcadas en ámbar) para generar el Excel.`, 'err');
+    el.buscar.value = '';
+    mostrarVista('vistaLista');
+    render();
+    return;
+  }
   if (typeof XLSX === 'undefined') { avisar('No se cargó la librería de Excel. Revisa la conexión.', 'err'); return; }
 
   const ws = XLSX.utils.json_to_sheet(items.map(aFilaExcel));
@@ -490,6 +592,8 @@ function abrirHoja(hoja) {
   hoja.scrollTop = 0;
 }
 function cerrarHoja() {
+  if (completando && completando.modo === 'nuevo') avisar(`No se guardó ${completando.f.numeroCompleto}.`, 'warn');
+  completando = null;
   el.fondoHoja.classList.remove('abierta');
   document.querySelectorAll('.hoja.abierta').forEach(x => x.classList.remove('abierta'));
   borrador = null;
@@ -509,6 +613,7 @@ function renderClientes() {
       <button class="elegir" data-id="${esc(c.id)}">
         <b>${esc(c.nombre)}</b>
         <small>RUC ${esc(c.ruc)}-${esc(c.dv)} · ${facturasDe(c.id)} factura(s)${c.id === clienteId ? ' · <span class="marca-activo">EN USO</span>' : ''}</small>
+        <small>${c.actividades ? esc(c.actividades.length > 70 ? c.actividades.slice(0, 70) + '…' : c.actividades) : 'Sin actividades cargadas'}</small>
       </button>
       <button class="icono-btn editar" data-id="${esc(c.id)}" aria-label="Editar cliente">${ICO_EDITAR}</button>
       <button class="icono-btn borrar-cli" data-id="${esc(c.id)}" aria-label="Borrar cliente">${ICO_BORRAR}</button>
@@ -526,11 +631,12 @@ function limpiarFormCliente() {
   editandoCliente = '';
   el.cNombre.value = '';
   el.cRuc.value = '';
+  el.cActividades.value = '';
   el.cRuc.disabled = false;
   el.cliNotaRuc.hidden = true;
   el.cliFormTitulo.textContent = 'Nuevo cliente';
   el.btnGuardarCli.textContent = 'Agregar cliente';
-  for (const i of [el.cNombre, el.cRuc]) { i.closest('.campo').classList.remove('error'); i.closest('.campo').querySelector('small').textContent = ''; }
+  for (const i of [el.cNombre, el.cRuc, el.cActividades]) { i.closest('.campo').classList.remove('error'); i.closest('.campo').querySelector('small').textContent = ''; }
 }
 
 function abrirClientes() {
@@ -567,12 +673,14 @@ function asignarHuerfanas(c) {
 function guardarCliente() {
   const { ruc, dv } = separarRuc(el.cRuc.value);
   const previo = clientes.find(c => c.id === editandoCliente);
-  const c = { id: editandoCliente || nuevoIdCliente(), nombre: el.cNombre.value.trim(), ruc: rucBase(ruc) || ruc, dv };
+  const c = { id: editandoCliente || nuevoIdCliente(), nombre: el.cNombre.value.trim(), ruc: rucBase(ruc) || ruc, dv,
+    actividades: el.cActividades.value.trim() };
   if (previo && el.cRuc.disabled) { c.ruc = previo.ruc; c.dv = previo.dv; }
   const { ok, errores } = validarCliente(c, clientes);
   const marcar = (input, msg) => { input.closest('.campo').classList.toggle('error', !!msg); input.closest('.campo').querySelector('small').textContent = msg || ''; };
   marcar(el.cNombre, errores.nombre);
   marcar(el.cRuc, errores.ruc);
+  marcar(el.cActividades, errores.actividades);
   if (!ok) return;
   if (previo) {
     Object.assign(previo, c);
@@ -600,6 +708,7 @@ function editarCliente(id) {
   editandoCliente = id;
   el.cNombre.value = c.nombre;
   el.cRuc.value = `${c.ruc}-${c.dv}`;
+  el.cActividades.value = c.actividades || '';
   const conFacturas = facturasDe(id) > 0;
   el.cRuc.disabled = conFacturas;
   el.cliNotaRuc.hidden = !conFacturas;
@@ -725,6 +834,12 @@ async function pedirJson(url, opciones) {
   }
 }
 
+// Instrucciones con las actividades del cliente elegido (para que la IA elija la cuenta)
+function promptCliente() {
+  const cli = clienteActual();
+  return armarPromptIA(cli ? cli.actividades : '');
+}
+
 // Claude: Messages API directo desde el navegador, con respuesta JSON según el esquema
 async function leerConClaude(b64, clave, modelo) {
   const j = await pedirJson('https://api.anthropic.com/v1/messages', {
@@ -738,7 +853,7 @@ async function leerConClaude(b64, clave, modelo) {
     body: JSON.stringify({
       model: modelo,
       max_tokens: 16000,
-      system: PROMPT_IA,
+      system: promptCliente(),
       output_config: { effort: 'low', format: { type: 'json_schema', schema: ESQUEMA_IA } },
       messages: [{
         role: 'user',
@@ -761,7 +876,7 @@ async function leerConGemini(b64, clave, modelo) {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: PROMPT_IA }] },
+      systemInstruction: { parts: [{ text: promptCliente() }] },
       contents: [{ role: 'user', parts: [
         { inlineData: { mimeType: 'image/jpeg', data: b64 } },
         { text: 'Lee esta factura y devuelve solo el JSON.' }
@@ -824,7 +939,7 @@ function cargarAMano() {
 
 // ---------- Formulario de revisión ----------
 
-const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'rucReceptor', 'numeroCompleto', 'fecha', 'condicion',
+const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'rucReceptor', 'cuenta', 'descripcion', 'numeroCompleto', 'fecha', 'condicion',
   'total10', 'total5', 'exenta', 'total', 'iva', 'cdc'];
 const campoForm = c => $('f_' + c);
 const montoTexto = v => (v === null || v === undefined || v === '' ? '' : gs(v));
@@ -848,7 +963,10 @@ function abrirRevision(f, foto) {
   campoForm('origen').value = f.origen;
   $('f_excluirConciliacion').checked = !!f.excluirConciliacion;
   campoForm('rucEmisor').value = f.rucEmisor ? `${f.rucEmisor}${f.dvEmisor ? '-' + f.dvEmisor : ''}` : '';
-  campoForm('timbrado').value = f.timbrado || '';
+  const sug = sugerenciaProveedor(memoria, clienteId, f.rucEmisor);
+  campoForm('timbrado').value = f.timbrado || sug.timbrado;
+  campoForm('cuenta').value = f.cuenta || sug.cuenta;
+  campoForm('descripcion').value = f.descripcion || sug.descripcion;
   campoForm('razonSocial').value = f.razonSocial || '';
   const cli = clienteActual();
   const receptor = f.rucReceptor || (cli ? cli.ruc : '');
@@ -880,6 +998,8 @@ function leerFormulario() {
     fecha,
     periodo: fecha.slice(0, 7),
     timbrado: campoForm('timbrado').value.replace(/\s/g, ''),
+    cuenta: campoForm('cuenta').value,
+    descripcion: normalizarDescripcion(campoForm('descripcion').value),
     condicion: campoForm('condicion').value,
     total10: montoFlexible(campoForm('total10').value),
     total5: montoFlexible(campoForm('total5').value),
@@ -929,6 +1049,8 @@ function confirmarRevision() {
     revisar: []
   });
   lista.push(f);
+  memoria = recordarProveedor(memoria, clienteId, f);
+  guardarMemoria();
   guardarLista();
   cerrarHoja();
   render();
@@ -1044,8 +1166,8 @@ for (const input of [el.fotoIACamara, el.fotoIAGaleria]) {
   input.addEventListener('change', () => { leerConIA(input.files[0]); input.value = ''; });
 }
 el.btnCopiarPrompt.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(PROMPT_IA); avisar('Instrucciones copiadas. Pégalas en Gemini o Claude junto con la foto.', 'ok'); }
-  catch { el.iaJson.value = PROMPT_IA; el.iaJson.select(); avisar('Copia el texto del cuadro manualmente.', 'info'); }
+  try { await navigator.clipboard.writeText(promptCliente()); avisar('Instrucciones copiadas. Pégalas en Gemini o Claude junto con la foto.', 'ok'); }
+  catch { el.iaJson.value = promptCliente(); el.iaJson.select(); avisar('Copia el texto del cuadro manualmente.', 'info'); }
 });
 el.btnPegarJson.addEventListener('click', async () => {
   try { el.iaJson.value = await navigator.clipboard.readText(); } catch { avisar('Mantén pulsado el cuadro y elige Pegar.', 'info'); }
@@ -1061,6 +1183,11 @@ el.hojaRevision.addEventListener('input', e => {
 });
 el.hojaRevision.addEventListener('change', e => {
   if (e.target.id === 'f_tipo' && !excluirTocado) $('f_excluirConciliacion').checked = excluirPorDefecto(e.target.value);
+  // Proveedor conocido: completa lo vacío con lo último usado (sin gastar IA)
+  if (e.target.id === 'f_rucEmisor') {
+    const sug = sugerenciaProveedor(memoria, clienteId, separarRuc(e.target.value).ruc);
+    for (const c of ['timbrado', 'cuenta', 'descripcion']) if (!campoForm(c).value && sug[c]) campoForm(c).value = sug[c];
+  }
   if (e.target.id === 'f_excluirConciliacion') excluirTocado = true;
   // Al salir de un monto se muestra con separador de miles
   if (/^f_(total|total5|total10|exenta|iva)$/.test(e.target.id)) {
@@ -1084,7 +1211,7 @@ el.btnPortapapeles.addEventListener('click', async () => {
 });
 el.btnManual.addEventListener('click', () => {
   if (!el.manual.value.trim()) return;
-  if (agregar(el.manual.value)) { el.manual.value = ''; cerrarHoja(); }
+  if (agregar(el.manual.value)) el.manual.value = ''; // se abre la ventana Completar
 });
 el.buscar.addEventListener('input', render);
 el.tabla.addEventListener('change', e => {
@@ -1096,7 +1223,17 @@ el.tabla.addEventListener('change', e => {
   render();
   avisar(f.excluirConciliacion ? `${f.numeroCompleto}: excluida de conciliación.` : `${f.numeroCompleto}: se concilia con Marangatu.`, 'info');
 });
+el.btnGuardarComp.addEventListener('click', guardarCompletar);
+el.btnCancelarComp.addEventListener('click', cerrarHoja);
+el.hojaCompletar.addEventListener('input', validarCompletar);
+el.hojaCompletar.addEventListener('change', validarCompletar);
 el.tabla.addEventListener('click', e => {
+  const ed = e.target.closest('.editar-f');
+  if (ed) {
+    const f = lista.find(x => x.id === ed.dataset.id);
+    if (f) abrirCompletar(f, 'editar');
+    return;
+  }
   const b = e.target.closest('.borrar');
   if (!b) return;
   const f = lista.find(x => x.id === b.dataset.id);
@@ -1133,6 +1270,8 @@ el.periodo.addEventListener('change', () => {
   pintarAjustesIA();
   cargarLista();
   cargarClientes();
+  cargarMemoria();
+  pintarCuentas();
   guardarLista(); // guarda la migración de listas viejas
   render();
   if (!clientes.length) abrirClientes(); // primer uso: crear el primer cliente
