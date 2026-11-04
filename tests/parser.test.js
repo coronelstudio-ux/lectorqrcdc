@@ -175,7 +175,7 @@ prueba('validarFactura: CDC debe coincidir con número, RUC y fecha', () => {
 // ---------- normalizarIA ----------
 prueba('normalizarIA: respuesta completa', () => {
   const f = p.normalizarIA({
-    tipo: 'Manual', rucEmisor: '1234567', dvEmisor: '8', razonSocial: 'Comercio Ejemplo SA', numeroCompleto: '1-1-10',
+    tipo: 'Manual', rucEmisor: '1234567', dvEmisor: '8', razonSocial: 'Comercio Ejemplo SA', rucReceptor: '0001234500-1', numeroCompleto: '1-1-10',
     fecha: '15/11/2026', timbrado: '12345678', condicion: 'CONTADO', total5: '21.000', total10: 55000, exenta: 4000,
     total: '80.000', iva: 6000, cdc: null, revisar: ['timbrado', 'clave_inventada']
   });
@@ -189,7 +189,10 @@ prueba('normalizarIA: respuesta completa', () => {
   assert.strictEqual(f.total5, 21000);
   assert.strictEqual(f.total, 80000);
   assert.deepStrictEqual(f.revisar, ['timbrado']);
+  assert.strictEqual(f.rucReceptor, '1234500');
   assert.ok(p.validarFactura(f, '2026-11').ok);
+  assert.ok(p.validarFactura(f, '2026-11', '1234500').ok);
+  assert.ok(p.validarFactura(f, '2026-11', '7777777').errores.rucReceptor);
 });
 prueba('normalizarIA: campos ausentes quedan en null y marcados', () => {
   const f = p.normalizarIA({ tipo: 'Manual', rucEmisor: '1234567-8', numeroCompleto: null, fecha: null, total: null,
@@ -239,6 +242,54 @@ prueba('PROMPT_IA: pide solo JSON y null sin estimar', () => {
   assert.ok(/únicamente un objeto JSON/.test(p.PROMPT_IA));
   assert.ok(/devuelve null/.test(p.PROMPT_IA));
   for (const c of p.CAMPOS_IA) assert.ok(p.PROMPT_IA.includes(c + ':'), 'el prompt no menciona ' + c);
+});
+
+// ---------- Clientes ----------
+prueba('rucBase y rucCoincide: sin DV ni ceros a la izquierda', () => {
+  assert.strictEqual(p.rucBase('80012345-6'), '80012345');
+  assert.strictEqual(p.rucBase('080012345'), '80012345');
+  assert.strictEqual(p.rucBase(null), '');
+  assert.ok(p.rucCoincide('1234567', '01234567-8'));
+  assert.ok(!p.rucCoincide('1234567', '1234568'));
+  assert.ok(!p.rucCoincide('', ''));
+});
+prueba('validarCliente: nombre, RUC con DV y sin repetir', () => {
+  assert.ok(p.validarCliente({ id: 'a', nombre: 'Cliente Ejemplo', ruc: '1234567', dv: '8' }).ok);
+  assert.ok(p.validarCliente({ nombre: '', ruc: '1234567', dv: '8' }).errores.nombre);
+  assert.ok(p.validarCliente({ nombre: 'X', ruc: '1234567', dv: '' }).errores.ruc);
+  const otros = [{ id: 'a', nombre: 'Uno', ruc: '1234567', dv: '8' }];
+  assert.ok(p.validarCliente({ id: 'b', nombre: 'Dos', ruc: '01234567', dv: '8' }, otros).errores.ruc);
+  assert.ok(p.validarCliente({ id: 'a', nombre: 'Uno renombrado', ruc: '1234567', dv: '8' }, otros).ok);
+});
+prueba('parsearEnlace: acepta si el RUC receptor es del cliente', () => {
+  const r = p.parsearEnlace(enlace(cdcSintetico(), '2026-11-02'), '2026-11', '1234567');
+  assert.ok(r.ok, r.error);
+});
+prueba('parsearEnlace: rechaza factura de otro cliente', () => {
+  const r = p.parsearEnlace(enlace(cdcSintetico(), '2026-11-02'), '2026-11', '7654321');
+  assert.ok(!r.ok);
+  assert.ok(r.rucDistinto);
+  assert.strictEqual(r.factura.rucReceptor, '1234567');
+});
+prueba('parsearEnlace: rechaza factura sin RUC receptor cuando hay cliente', () => {
+  const sinReceptor = enlace(cdcSintetico(), '2026-11-02').replace('&dRucRec=1234567', '');
+  const r = p.parsearEnlace(sinReceptor, '2026-11', '1234567');
+  assert.ok(!r.ok);
+  assert.ok(r.rucDistinto);
+  assert.ok(p.parsearEnlace(sinReceptor, '2026-11').ok); // sin cliente no se controla
+});
+prueba('parsearEnlace: el período se controla antes que el cliente', () => {
+  const r = p.parsearEnlace(enlace(cdcSintetico('20261005'), '2026-10-05'), '2026-11', '7654321');
+  assert.ok(r.periodoDistinto);
+});
+prueba('validarFactura: exige RUC receptor cuando hay cliente', () => {
+  const f = Object.assign(base(), { rucReceptor: '' });
+  assert.ok(p.validarFactura(f, '2026-11', '1234500').errores.rucReceptor);
+  assert.ok(p.validarFactura(Object.assign(f, { rucReceptor: '1234500' }), '2026-11', '1234500-3').ok);
+});
+prueba('completarFactura: conserva el cliente y deja vacío si no hay', () => {
+  assert.strictEqual(p.completarFactura({ cdc: cdcSintetico(), clienteId: 'c1' }).clienteId, 'c1');
+  assert.strictEqual(p.completarFactura({ cdc: cdcSintetico() }).clienteId, '');
 });
 
 console.log(fallas.join('\n\n'));

@@ -17,7 +17,8 @@ function hexToStr(hex) {
 
 // Lee un enlace del QR de e-Kuatia (DNIT, ex SET) y devuelve todos sus datos.
 // periodoEsperado: "AAAA-MM". Si la factura es de otro mes, devuelve error de período.
-function parsearEnlace(texto, periodoEsperado) {
+// rucCliente (opcional): RUC del cliente elegido. Si el RUC receptor (dRucRec) no coincide, se rechaza.
+function parsearEnlace(texto, periodoEsperado, rucCliente) {
   let url;
   try { url = new URL(String(texto).trim()); } catch { return { ok: false, error: 'No es un enlace válido.' }; }
 
@@ -72,6 +73,12 @@ function parsearEnlace(texto, periodoEsperado) {
   if (periodoEsperado && periodo !== periodoEsperado) {
     return { ok: false, periodoDistinto: true, factura, error: `Factura de ${periodo}, fuera del período ${periodoEsperado}.` };
   }
+  if (rucCliente && !rucCoincide(factura.rucReceptor, rucCliente)) {
+    const error = factura.rucReceptor
+      ? `Factura de otro cliente (RUC receptor ${factura.rucReceptor}).`
+      : 'La factura no tiene RUC receptor: no corresponde al cliente elegido.';
+    return { ok: false, rucDistinto: true, factura, error };
+  }
   return { ok: true, factura };
 }
 
@@ -79,8 +86,29 @@ function parsearEnlace(texto, periodoEsperado) {
 
 const TIPOS = ['QR', 'Electrónica sin QR', 'Manual'];
 const ORIGENES = ['QR', 'IA', 'Manual'];
-const CAMPOS_IA = ['tipo', 'rucEmisor', 'dvEmisor', 'razonSocial', 'numeroCompleto', 'fecha', 'timbrado',
+const CAMPOS_IA = ['tipo', 'rucEmisor', 'dvEmisor', 'razonSocial', 'rucReceptor', 'numeroCompleto', 'fecha', 'timbrado',
   'condicion', 'total5', 'total10', 'exenta', 'total', 'iva', 'cdc'];
+
+// ---------- Clientes (contribuyentes que atiende el usuario) ----------
+
+// RUC sin DV y sin ceros a la izquierda: "80012345-6" y "080012345" -> "80012345"
+function rucBase(r) {
+  return String(r ?? '').replace(/\s/g, '').split('-')[0].replace(/\D/g, '').replace(/^0+/, '');
+}
+// Compara dos RUC sin importar el DV ni los ceros a la izquierda
+function rucCoincide(a, b) {
+  const x = rucBase(a), y = rucBase(b);
+  return x !== '' && x === y;
+}
+
+// Revisa los datos de un cliente. Devuelve { ok, errores: { campo: mensaje } }.
+function validarCliente(c, otros = []) {
+  const errores = {};
+  if (!String(c.nombre ?? '').trim()) errores.nombre = 'Falta el nombre.';
+  if (!/^\d{1,8}-\d$/.test(`${c.ruc ?? ''}-${c.dv ?? ''}`)) errores.ruc = 'RUC con DV: formato 0000000-0.';
+  else if (otros.some(o => o.id !== c.id && rucCoincide(o.ruc, c.ruc))) errores.ruc = 'Ya existe un cliente con ese RUC.';
+  return { ok: Object.keys(errores).length === 0, errores };
+}
 const CAMPOS_MONTO = ['total5', 'total10', 'exenta', 'total', 'iva'];
 
 // Valor por defecto de "Excluir de conciliación": las manuales no tienen CDC para cruzar con Marangatu
@@ -159,8 +187,13 @@ function datosDeCdc(cdc) {
 }
 
 // Revisa una factura cargada a mano o por IA. Devuelve { ok, errores: { campo: mensaje } }.
-function validarFactura(f, periodo) {
+// rucCliente (opcional): RUC del cliente elegido; el RUC receptor de la factura debe coincidir.
+function validarFactura(f, periodo, rucCliente) {
   const errores = {};
+  if (rucCliente) {
+    if (!rucBase(f.rucReceptor)) errores.rucReceptor = 'Falta el RUC receptor (cliente).';
+    else if (!rucCoincide(f.rucReceptor, rucCliente)) errores.rucReceptor = 'El RUC receptor no es el del cliente elegido.';
+  }
   const ruc = `${f.rucEmisor ?? ''}-${f.dvEmisor ?? ''}`;
   if (!/^\d{1,8}-\d$/.test(ruc)) errores.rucEmisor = 'RUC con DV: formato 0000000-0.';
   if (!/^\d{3}-\d{3}-\d{7}$/.test(f.numeroCompleto || '')) errores.numeroCompleto = 'Formato 000-000-0000000.';
@@ -217,6 +250,7 @@ function normalizarIA(datos, origen = 'IA') {
     numeroCompleto: numero || texto(d.numeroCompleto),
     fecha: fecha || texto(d.fecha),
     periodo: fecha ? fecha.slice(0, 7) : '',
+    rucReceptor: rucBase(d.rucReceptor),
     timbrado: texto(d.timbrado).replace(/\s/g, ''),
     condicion: normalizarCondicion(d.condicion),
     cdc: /^\d{44}$/.test(cdc) ? cdc : (cdc ? cdc : ''),
@@ -245,6 +279,7 @@ function normalizarIA(datos, origen = 'IA') {
   if (!f.timbrado) revisar.add('timbrado');
   if (!f.razonSocial) revisar.add('razonSocial');
   if (!f.condicion) revisar.add('condicion');
+  if (!f.rucReceptor) revisar.add('rucReceptor');
 
   f.revisar = [...revisar];
   return f;
@@ -254,7 +289,7 @@ function normalizarIA(datos, origen = 'IA') {
 function completarFactura(f) {
   const r = Object.assign({
     tipo: 'QR', origen: 'QR', razonSocial: '', timbrado: '', condicion: '',
-    total5: null, total10: null, exenta: null, revisar: []
+    total5: null, total10: null, exenta: null, revisar: [], clienteId: ''
   }, f);
   if (typeof r.excluirConciliacion !== 'boolean') r.excluirConciliacion = excluirPorDefecto(r.tipo);
   if (!r.id) r.id = claveFactura(r);
@@ -267,6 +302,7 @@ const PROMPT_IA = `Eres un lector de facturas de compra de Paraguay (DNIT). Lee 
 - rucEmisor: RUC del emisor (el proveedor que vende, no el cliente), solo dígitos y sin DV.
 - dvEmisor: dígito verificador del RUC del emisor.
 - razonSocial: nombre o razón social del emisor.
+- rucReceptor: RUC del cliente que compra (receptor de la factura), solo dígitos y sin DV.
 - numeroCompleto: número de factura con formato 000-000-0000000.
 - fecha: fecha de emisión con formato AAAA-MM-DD.
 - timbrado: número de timbrado.
@@ -287,7 +323,7 @@ const ESQUEMA_IA = (() => {
   const num = { anyOf: [{ type: 'number' }, { type: 'null' }] };
   const props = {
     tipo: { anyOf: [{ type: 'string', enum: ['Electrónica sin QR', 'Manual'] }, { type: 'null' }] },
-    rucEmisor: txt, dvEmisor: txt, razonSocial: txt, numeroCompleto: txt, fecha: txt, timbrado: txt,
+    rucEmisor: txt, dvEmisor: txt, razonSocial: txt, rucReceptor: txt, numeroCompleto: txt, fecha: txt, timbrado: txt,
     condicion: { anyOf: [{ type: 'string', enum: ['Contado', 'Crédito'] }, { type: 'null' }] },
     total5: num, total10: num, exenta: num, total: num, iva: num, cdc: txt,
     revisar: { type: 'array', items: { type: 'string', enum: CAMPOS_IA } }
@@ -343,6 +379,7 @@ if (typeof module !== 'undefined') {
     parseMonto, hexToStr, parsearEnlace, aFilaExcel,
     TIPOS, ORIGENES, CAMPOS_IA, PROMPT_IA, ESQUEMA_IA,
     excluirPorDefecto, montoFlexible, separarRuc, formatearNumero, normalizarFecha, normalizarCondicion,
-    claveFactura, datosDeCdc, validarFactura, normalizarIA, completarFactura, extraerJson
+    claveFactura, datosDeCdc, validarFactura, normalizarIA, completarFactura, extraerJson,
+    rucBase, rucCoincide, validarCliente
   };
 }
