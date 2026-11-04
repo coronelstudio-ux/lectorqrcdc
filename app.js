@@ -3,6 +3,8 @@ const KEY_PERIODO = 'lectorQR_periodo';
 const KEY_SONIDO = 'lectorQR_sonido';
 const KEY_CAMARA = 'lectorQR_camara';
 const KEY_IA = 'lectorQR_ia';
+const KEY_CLIENTES = 'lectorQR_clientes';
+const KEY_CLIENTE = 'lectorQR_cliente';
 const KEY_CLAVE = { gemini: 'lectorQR_clave_gemini', claude: 'lectorQR_clave_claude' };
 const MODELOS = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-5-5' };
 const NOMBRE_IA = { gemini: 'Gemini', claude: 'Claude', manual: 'copiar y pegar' };
@@ -18,6 +20,10 @@ const el = {
   actualizar: $('actualizar'), btnActualizar: $('btnActualizar'), btnFoto: $('btnFoto'), archivoFoto: $('archivoFoto'), btnPegar: $('btnPegar'),
   contador: $('contador'), buscar: $('buscar'), tabla: $('tabla'), insignia: $('insignia'),
   expPeriodo: $('expPeriodo'), expCantidad: $('expCantidad'), expTotal: $('expTotal'), expIva: $('expIva'),
+  btnCliente: $('btnCliente'), clienteTexto: $('clienteTexto'), expCliente: $('expCliente'),
+  hojaClientes: $('hojaClientes'), cliSubtitulo: $('cliSubtitulo'), cliLista: $('cliLista'), cliHuerfanas: $('cliHuerfanas'),
+  cliFormTitulo: $('cliFormTitulo'), cNombre: $('c_nombre'), cRuc: $('c_ruc'), cliNotaRuc: $('cliNotaRuc'),
+  btnCancelarCli: $('btnCancelarCli'), btnGuardarCli: $('btnGuardarCli'),
   btnGuardar: $('btnGuardar'), btnBorrar: $('btnBorrar'), expConciliar: $('expConciliar'), expExcluidas: $('expExcluidas'),
   btnSinQR: $('btnSinQR'), btnAMano: $('btnAMano'), hojaIA: $('hojaIA'), iaSubtitulo: $('iaSubtitulo'), iaOpcionesFoto: $('iaOpcionesFoto'),
   btnIACamara: $('btnIACamara'), btnIAGaleria: $('btnIAGaleria'), fotoIACamara: $('fotoIACamara'), fotoIAGaleria: $('fotoIAGaleria'),
@@ -44,6 +50,9 @@ const ICO_SONIDO_ON = '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 
 const ICO_SONIDO_OFF = '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="m23 9-6 6M17 9l6 6"/>';
 
 let lista = [];
+let clientes = [];        // [{ id, nombre, ruc, dv }]
+let clienteId = '';
+let editandoCliente = '';
 let stream = null;
 let pista = null;
 let timer = null;
@@ -127,6 +136,26 @@ function respuesta(msg, tipo) {
 }
 
 function periodoActual() { return el.periodo.value; }
+function clienteActual() { return clientes.find(c => c.id === clienteId) || null; }
+
+function cargarClientes() {
+  try { clientes = JSON.parse(leerLS(KEY_CLIENTES) || '[]'); } catch { clientes = []; }
+  if (!Array.isArray(clientes)) clientes = [];
+  clienteId = leerLS(KEY_CLIENTE) || '';
+  if (!clienteActual()) clienteId = clientes.length ? clientes[0].id : '';
+}
+function guardarClientes() {
+  escribirLS(KEY_CLIENTES, JSON.stringify(clientes));
+  escribirLS(KEY_CLIENTE, clienteId);
+}
+
+// Antes de cargar una factura hace falta cliente y período
+function listo(conRespuesta) {
+  const fallar = msg => { (conRespuesta ? respuesta : avisar)(msg, 'err'); return false; };
+  if (!clienteActual()) { fallar('Elige o crea primero el cliente.'); abrirClientes(); return false; }
+  if (!periodoActual()) return fallar('Elige primero el período (mes).');
+  return true;
+}
 
 function textoPeriodo(p) {
   if (!/^\d{4}-\d{2}$/.test(p || '')) return 'Período';
@@ -141,7 +170,8 @@ function cargarLista() {
 function guardarLista() { escribirLS(KEY_LISTA, JSON.stringify(lista)); }
 
 function listaDelPeriodo() {
-  return lista.filter(f => f.periodo === periodoActual());
+  if (!clienteId) return []; // sin cliente no se muestra nada (ni las facturas sin asignar)
+  return lista.filter(f => f.periodo === periodoActual() && f.clienteId === clienteId);
 }
 
 function render() {
@@ -150,12 +180,16 @@ function render() {
   const iva = items.reduce((s, f) => s + (f.iva || 0), 0);
   const p = periodoActual();
 
+  const cli = clienteActual();
   el.periodoTexto.textContent = textoPeriodo(p);
+  el.clienteTexto.textContent = cli ? cli.nombre : 'Elegir cliente';
+  el.btnCliente.classList.toggle('falta', !cli);
+  el.expCliente.textContent = cli ? `${cli.nombre} · ${cli.ruc}-${cli.dv}` : '—';
   el.contadorFlotante.textContent = items.length;
   el.totalFlotante.textContent = gs(total);
   el.insignia.textContent = items.length;
   el.insignia.hidden = items.length === 0;
-  el.contador.textContent = `${items.length} factura(s) en ${textoPeriodo(p)} · Gs. ${gs(total)}`;
+  el.contador.textContent = `${cli ? cli.nombre + ' · ' : ''}${items.length} factura(s) en ${textoPeriodo(p)} · Gs. ${gs(total)}`;
   el.expPeriodo.textContent = textoPeriodo(p);
   el.expCantidad.textContent = items.length;
   el.expTotal.textContent = gs(total);
@@ -172,7 +206,7 @@ function render() {
 
   if (!visibles.length) {
     el.tabla.innerHTML = `<div class="vacio"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-      <p>${items.length ? 'Ninguna factura coincide con la búsqueda.' : 'Todavía no hay facturas en este período.<br>Ve a Escanear para empezar.'}</p></div>`;
+      <p>${!cli ? 'Elige o crea un cliente para empezar.' : items.length ? 'Ninguna factura coincide con la búsqueda.' : 'Todavía no hay facturas de este cliente en el período.<br>Ve a Escanear para empezar.'}</p></div>`;
     return;
   }
   el.tabla.innerHTML = visibles.map(f => `
@@ -195,12 +229,21 @@ function render() {
 }
 
 function agregar(texto) {
-  if (!periodoActual()) { respuesta('Elige primero el período (mes).', 'err'); return false; }
-  const r = parsearEnlace(texto, periodoActual());
+  if (!listo(true)) return false;
+  const cli = clienteActual();
+  const r = parsearEnlace(texto, periodoActual(), cli.ruc);
   if (!r.ok) {
-    respuesta(r.periodoDistinto ? `Ignorada ${r.factura.numeroCompleto}: es de ${textoPeriodo(r.factura.periodo)}.` : r.error, 'err');
+    let msg = r.error;
+    if (r.periodoDistinto) msg = `Ignorada ${r.factura.numeroCompleto}: es de ${textoPeriodo(r.factura.periodo)}.`;
+    else if (r.rucDistinto) {
+      const otro = clientes.find(c => rucCoincide(c.ruc, r.factura.rucReceptor));
+      msg = otro ? `Ignorada ${r.factura.numeroCompleto}: es de ${otro.nombre}. Cambia de cliente para cargarla.`
+                 : `Ignorada ${r.factura.numeroCompleto}: ${r.error}`;
+    }
+    respuesta(msg, 'err');
     return false;
   }
+  r.factura.clienteId = cli.id;
   if (lista.some(f => f.id === r.factura.id)) {
     respuesta(`Ya estaba registrada: ${r.factura.numeroCompleto}`, 'warn');
     return false;
@@ -239,7 +282,7 @@ function crearDetector() {
 }
 
 async function iniciarCamara() {
-  if (!periodoActual()) { avisar('Elige primero el período (mes).', 'err'); return; }
+  if (!listo()) return;
   if (!window.isSecureContext || !navigator.mediaDevices) {
     avisar('La cámara requiere HTTPS. Abre la página desde GitHub Pages, no como archivo local.', 'err');
     return;
@@ -367,7 +410,7 @@ async function aplicarZoom() {
 // Leer el QR desde una foto de la galería
 async function leerFoto(archivo) {
   if (!archivo) return;
-  if (!periodoActual()) { avisar('Elige primero el período (mes).', 'err'); return; }
+  if (!listo()) return;
   crearDetector();
   try {
     const img = await createImageBitmap(archivo);
@@ -393,14 +436,15 @@ async function leerFoto(archivo) {
 // si no, se descarga a la carpeta Descargas del celular.
 async function guardarExcel() {
   const items = listaDelPeriodo();
-  if (!items.length) { avisar('No hay facturas en este período.', 'err'); return; }
+  if (!clienteActual()) { avisar('Elige primero el cliente.', 'err'); return; }
+  if (!items.length) { avisar('No hay facturas de este cliente en el período.', 'err'); return; }
   if (typeof XLSX === 'undefined') { avisar('No se cargó la librería de Excel. Revisa la conexión.', 'err'); return; }
 
   const ws = XLSX.utils.json_to_sheet(items.map(aFilaExcel));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'QR');
   const datos = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const nombre = `QR_facturas_${periodoActual()}.xlsx`;
+  const nombre = `QR_facturas_${clienteActual().ruc}_${periodoActual()}.xlsx`;
   const tipo = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const blob = new Blob([datos], { type: tipo });
 
@@ -452,6 +496,137 @@ function cerrarHoja() {
   if (fotoUrl) { URL.revokeObjectURL(fotoUrl); fotoUrl = null; }
 }
 
+// ---------- Clientes ----------
+
+const ICO_EDITAR = '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const ICO_BORRAR = '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+const facturasDe = id => lista.filter(f => f.clienteId === id).length;
+const nuevoIdCliente = () => 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function renderClientes() {
+  el.cliLista.innerHTML = clientes.length ? clientes.map(c => `
+    <div class="cliente-fila${c.id === clienteId ? ' activo' : ''}">
+      <button class="elegir" data-id="${esc(c.id)}">
+        <b>${esc(c.nombre)}</b>
+        <small>RUC ${esc(c.ruc)}-${esc(c.dv)} · ${facturasDe(c.id)} factura(s)${c.id === clienteId ? ' · <span class="marca-activo">EN USO</span>' : ''}</small>
+      </button>
+      <button class="icono-btn editar" data-id="${esc(c.id)}" aria-label="Editar cliente">${ICO_EDITAR}</button>
+      <button class="icono-btn borrar-cli" data-id="${esc(c.id)}" aria-label="Borrar cliente">${ICO_BORRAR}</button>
+    </div>`).join('') : '';
+  // Facturas guardadas antes de tener clientes (o de un cliente borrado sin facturas)
+  const huerfanas = lista.filter(f => !f.clienteId);
+  const rucs = [...new Set(huerfanas.map(f => rucBase(f.rucReceptor)).filter(Boolean))];
+  el.cliHuerfanas.hidden = !huerfanas.length;
+  el.cliHuerfanas.textContent = huerfanas.length
+    ? `Hay ${huerfanas.length} factura(s) guardada(s) sin cliente${rucs.length ? ` (RUC receptor ${rucs.join(', ')})` : ''}. Crea el cliente con ese RUC y se le asignan solas.`
+    : '';
+}
+
+function limpiarFormCliente() {
+  editandoCliente = '';
+  el.cNombre.value = '';
+  el.cRuc.value = '';
+  el.cRuc.disabled = false;
+  el.cliNotaRuc.hidden = true;
+  el.cliFormTitulo.textContent = 'Nuevo cliente';
+  el.btnGuardarCli.textContent = 'Agregar cliente';
+  for (const i of [el.cNombre, el.cRuc]) { i.closest('.campo').classList.remove('error'); i.closest('.campo').querySelector('small').textContent = ''; }
+}
+
+function abrirClientes() {
+  if (stream) detenerCamara();
+  limpiarFormCliente();
+  renderClientes();
+  el.cliSubtitulo.textContent = clientes.length
+    ? 'Elige con qué contribuyente trabajas. La lista, los totales y el Excel son de ese cliente.'
+    : 'Crea tu primer cliente (el contribuyente que compra). Las facturas se controlan con su RUC.';
+  abrirHoja(el.hojaClientes);
+  if (!clientes.length) setTimeout(() => el.cNombre.focus(), 250);
+}
+
+function elegirCliente(id) {
+  clienteId = id;
+  guardarClientes();
+  cerrarHoja();
+  el.buscar.value = '';
+  render();
+  avisar(`Cliente: ${clienteActual().nombre}`, 'info');
+}
+
+// Asigna al cliente las facturas sin cliente cuyo RUC receptor es el suyo.
+// Si es el único cliente, también las que no tienen RUC receptor.
+function asignarHuerfanas(c) {
+  let n = 0;
+  for (const f of lista) {
+    if (f.clienteId) continue;
+    if (rucCoincide(f.rucReceptor, c.ruc) || (clientes.length === 1 && !rucBase(f.rucReceptor))) { f.clienteId = c.id; n++; }
+  }
+  return n;
+}
+
+function guardarCliente() {
+  const { ruc, dv } = separarRuc(el.cRuc.value);
+  const previo = clientes.find(c => c.id === editandoCliente);
+  const c = { id: editandoCliente || nuevoIdCliente(), nombre: el.cNombre.value.trim(), ruc: rucBase(ruc) || ruc, dv };
+  if (previo && el.cRuc.disabled) { c.ruc = previo.ruc; c.dv = previo.dv; }
+  const { ok, errores } = validarCliente(c, clientes);
+  const marcar = (input, msg) => { input.closest('.campo').classList.toggle('error', !!msg); input.closest('.campo').querySelector('small').textContent = msg || ''; };
+  marcar(el.cNombre, errores.nombre);
+  marcar(el.cRuc, errores.ruc);
+  if (!ok) return;
+  if (previo) {
+    Object.assign(previo, c);
+    guardarClientes();
+    limpiarFormCliente();
+    renderClientes();
+    render();
+    avisar('Cliente actualizado.', 'ok');
+    return;
+  }
+  clientes.push(c);
+  const asignadas = asignarHuerfanas(c);
+  guardarLista();
+  clienteId = c.id;
+  guardarClientes();
+  cerrarHoja();
+  render();
+  avisar(`Creado: ${c.nombre}${asignadas ? `. Se le asignaron ${asignadas} factura(s) guardada(s)` : ''}.`, 'ok');
+}
+
+function editarCliente(id) {
+  const c = clientes.find(x => x.id === id);
+  if (!c) return;
+  limpiarFormCliente();
+  editandoCliente = id;
+  el.cNombre.value = c.nombre;
+  el.cRuc.value = `${c.ruc}-${c.dv}`;
+  const conFacturas = facturasDe(id) > 0;
+  el.cRuc.disabled = conFacturas;
+  el.cliNotaRuc.hidden = !conFacturas;
+  el.cliFormTitulo.textContent = 'Editar cliente';
+  el.btnGuardarCli.textContent = 'Guardar cambios';
+  el.cNombre.focus();
+}
+
+function borrarCliente(id) {
+  const c = clientes.find(x => x.id === id);
+  if (!c) return;
+  const n = facturasDe(id);
+  const pregunta = n
+    ? `¿Borrar a ${c.nombre}? También se borrarán sus ${n} factura(s) guardada(s) en este celular.`
+    : `¿Borrar a ${c.nombre}?`;
+  if (!confirm(pregunta)) return;
+  clientes = clientes.filter(x => x.id !== id);
+  lista = lista.filter(f => f.clienteId !== id);
+  if (clienteId === id) clienteId = clientes.length ? clientes[0].id : '';
+  guardarLista();
+  guardarClientes();
+  limpiarFormCliente();
+  renderClientes();
+  render();
+  avisar(`Borrado: ${c.nombre}.`, 'info');
+}
+
 // ---------- Lectura con IA (facturas sin QR) ----------
 
 function configIA() {
@@ -495,7 +670,7 @@ function guardarAjustesIA() {
 }
 
 function abrirSinQR() {
-  if (!periodoActual()) { avisar('Elige primero el período (mes).', 'err'); return; }
+  if (!listo()) return;
   if (stream) detenerCamara();
   const c = configIA();
   const manual = c.proveedor === 'manual';
@@ -638,7 +813,7 @@ function revisarJsonPegado() {
 }
 
 function cargarAMano() {
-  if (!periodoActual()) { avisar('Elige primero el período (mes).', 'err'); return; }
+  if (!listo()) return;
   if (stream) detenerCamara();
   abrirRevision({
     tipo: 'Manual', origen: 'Manual', excluirConciliacion: excluirPorDefecto('Manual'),
@@ -649,7 +824,7 @@ function cargarAMano() {
 
 // ---------- Formulario de revisión ----------
 
-const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'numeroCompleto', 'fecha', 'condicion',
+const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'rucReceptor', 'numeroCompleto', 'fecha', 'condicion',
   'total10', 'total5', 'exenta', 'total', 'iva', 'cdc'];
 const campoForm = c => $('f_' + c);
 const montoTexto = v => (v === null || v === undefined || v === '' ? '' : gs(v));
@@ -675,6 +850,9 @@ function abrirRevision(f, foto) {
   campoForm('rucEmisor').value = f.rucEmisor ? `${f.rucEmisor}${f.dvEmisor ? '-' + f.dvEmisor : ''}` : '';
   campoForm('timbrado').value = f.timbrado || '';
   campoForm('razonSocial').value = f.razonSocial || '';
+  const cli = clienteActual();
+  const receptor = f.rucReceptor || (cli ? cli.ruc : '');
+  campoForm('rucReceptor').value = cli && rucCoincide(receptor, cli.ruc) ? `${cli.ruc}-${cli.dv}` : receptor;
   campoForm('numeroCompleto').value = f.numeroCompleto || '';
   campoForm('fecha').value = normalizarFecha(f.fecha) || '';
   campoForm('condicion').value = f.condicion || '';
@@ -697,6 +875,7 @@ function leerFormulario() {
     rucEmisor: ruc.replace(/^0+/, ''),
     dvEmisor: dv,
     razonSocial: campoForm('razonSocial').value.trim(),
+    rucReceptor: rucBase(campoForm('rucReceptor').value),
     numeroCompleto: formatearNumero(numTxt) || numTxt,
     fecha,
     periodo: fecha.slice(0, 7),
@@ -713,7 +892,8 @@ function leerFormulario() {
 
 function validarFormulario() {
   const f = leerFormulario();
-  const { ok, errores } = validarFactura(f, periodoActual());
+  const cli = clienteActual();
+  const { ok, errores } = validarFactura(f, periodoActual(), cli ? cli.ruc : '');
   for (const c of CAMPOS_FORM) {
     const campo = campoForm(c).closest('.campo');
     campo.classList.toggle('error', !!errores[c]);
@@ -724,7 +904,7 @@ function validarFormulario() {
 }
 
 function confirmarRevision() {
-  if (!borrador) return;
+  if (!borrador || !listo()) return;
   const { f, ok, errores } = validarFormulario();
   if (!ok) {
     const primero = CAMPOS_FORM.find(c => errores[c]);
@@ -743,7 +923,8 @@ function confirmarRevision() {
     establecimiento: f.numeroCompleto.slice(0, 3),
     punto: f.numeroCompleto.slice(4, 7),
     numero: f.numeroCompleto.slice(8),
-    rucReceptor: '', items: '', version: '', enlace: '', parametros: '',
+    clienteId,
+    items: '', version: '', enlace: '', parametros: '',
     leidoEl: new Date().toISOString(),
     revisar: []
   });
@@ -846,6 +1027,16 @@ el.archivoFoto.addEventListener('change', () => {
 });
 el.btnPegar.addEventListener('click', () => { abrirHoja(el.hojaEnlace); setTimeout(() => el.manual.focus(), 250); });
 el.btnSinQR.addEventListener('click', abrirSinQR);
+el.btnCliente.addEventListener('click', abrirClientes);
+el.btnCancelarCli.addEventListener('click', cerrarHoja);
+el.btnGuardarCli.addEventListener('click', guardarCliente);
+el.cliLista.addEventListener('click', e => {
+  const b = e.target.closest('button[data-id]');
+  if (!b) return;
+  if (b.classList.contains('elegir')) elegirCliente(b.dataset.id);
+  else if (b.classList.contains('editar')) editarCliente(b.dataset.id);
+  else if (b.classList.contains('borrar-cli')) borrarCliente(b.dataset.id);
+});
 el.btnAMano.addEventListener('click', cargarAMano);
 el.btnIACamara.addEventListener('click', () => el.fotoIACamara.click());
 el.btnIAGaleria.addEventListener('click', () => el.fotoIAGaleria.click());
@@ -917,8 +1108,10 @@ el.tabla.addEventListener('click', e => {
 });
 el.btnGuardar.addEventListener('click', guardarExcel);
 el.btnBorrar.addEventListener('click', () => {
-  if (!confirm(`¿Borrar todas las facturas de ${textoPeriodo(periodoActual())}?`)) return;
-  lista = lista.filter(f => f.periodo !== periodoActual());
+  const cli = clienteActual();
+  if (!cli) return;
+  if (!confirm(`¿Borrar todas las facturas de ${cli.nombre} en ${textoPeriodo(periodoActual())}?`)) return;
+  lista = lista.filter(f => !(f.periodo === periodoActual() && f.clienteId === cli.id));
   guardarLista();
   render();
   avisar('Lista del período vacía.', 'info');
@@ -939,6 +1132,8 @@ el.periodo.addEventListener('change', () => {
   pintarSonido();
   pintarAjustesIA();
   cargarLista();
+  cargarClientes();
   guardarLista(); // guarda la migración de listas viejas
   render();
+  if (!clientes.length) abrirClientes(); // primer uso: crear el primer cliente
 })();

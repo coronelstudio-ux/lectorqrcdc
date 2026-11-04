@@ -48,7 +48,26 @@
     border-radius: 999px; background: rgba(255,255,255,.12); font-size: 14px; font-weight: 600; color: #fff;
   }
   .chip-periodo svg { width: 16px; height: 16px; }
-  .derecha { display: flex; align-items: center; gap: 8px; }
+  .derecha { display: flex; align-items: center; gap: 8px; flex: none; }
+  header { gap: 8px; }
+  .chip-cliente {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px;
+    background: rgba(255,255,255,.12); color: #fff; font-size: 14px; font-weight: 600; justify-content: flex-start;
+  }
+  .chip-cliente span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-cliente svg { width: 16px; height: 16px; flex: none; }
+  .chip-cliente.falta { background: var(--warn); color: #1a1a1a; }
+  @media (max-width: 480px) { .nombre-app { display: none; } }
+
+  /* Clientes */
+  .cliente-fila { display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 8px; background: var(--surface); }
+  .cliente-fila.activo { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+  .cliente-fila .elegir { flex: 1; min-width: 0; text-align: left; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .cliente-fila .elegir b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cliente-fila .elegir small { color: var(--muted); font-size: 12px; }
+  .cliente-fila .icono-btn { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); flex: none; }
+  .cliente-fila .icono-btn svg { width: 19px; height: 19px; }
+  .cliente-fila .marca-activo { color: var(--primary); font-size: 11px; font-weight: 700; }
   .btn-instalar { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--primary); color: #fff; }
   .btn-instalar svg { width: 18px; height: 18px; }
   .marca, .chip-periodo { white-space: nowrap; }
@@ -274,8 +293,13 @@
 <header>
   <div class="marca">
     <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></div>
-    <span>Lector QR DNIT</span>
+    <span class="nombre-app">Lector QR DNIT</span>
   </div>
+  <button class="chip-cliente" id="btnCliente" title="Cambiar cliente" aria-label="Cliente">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    <span id="clienteTexto">Elegir cliente</span>
+    <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+  </button>
   <div class="derecha">
   <button class="btn-instalar" id="btnInstalar" hidden title="Instalar app" aria-label="Instalar app">
     <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
@@ -356,6 +380,7 @@
       <p class="subtitulo">Excel del período para guardar en el celular</p>
       <div class="panel">
         <div class="metricas">
+          <div class="metrica ancha"><span>Cliente</span><b id="expCliente">—</b></div>
           <div class="metrica"><span>Período</span><b id="expPeriodo">—</b></div>
           <div class="metrica"><span>Facturas</span><b id="expCantidad">0</b></div>
           <div class="metrica"><span>Total (Gs)</span><b id="expTotal">0</b></div>
@@ -447,6 +472,24 @@
   </div>
 </div>
 
+<div class="hoja alta" id="hojaClientes" role="dialog" aria-label="Clientes">
+  <div class="asa"></div>
+  <h2>Clientes</h2>
+  <p class="subtitulo" id="cliSubtitulo">Elige con qué contribuyente trabajas. La lista, los totales y el Excel son de ese cliente.</p>
+  <div id="cliLista"></div>
+  <p class="nota" id="cliHuerfanas" hidden></p>
+  <div class="seccion" id="cliFormTitulo">Nuevo cliente</div>
+  <div class="form">
+    <label class="campo ancho"><span>Nombre o razón social</span><input id="c_nombre" autocomplete="off"><small></small></label>
+    <label class="campo ancho"><span>RUC con DV</span><input id="c_ruc" inputmode="numeric" placeholder="0000000-0" autocomplete="off"><small></small></label>
+  </div>
+  <p class="nota" id="cliNotaRuc" hidden>El RUC no se puede cambiar porque el cliente ya tiene facturas guardadas.</p>
+  <div class="botones fijos">
+    <button class="boton suave" id="btnCancelarCli">Cerrar</button>
+    <button class="boton" id="btnGuardarCli">Agregar cliente</button>
+  </div>
+</div>
+
 <div class="hoja alta" id="hojaIA" role="dialog" aria-label="Factura sin QR">
   <div class="asa"></div>
   <h2>Factura sin QR</h2>
@@ -487,6 +530,7 @@
     <label class="campo"><span>RUC emisor</span><input id="f_rucEmisor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
     <label class="campo"><span>Timbrado</span><input id="f_timbrado" inputmode="numeric"><small></small></label>
     <label class="campo ancho"><span>Razón social</span><input id="f_razonSocial"><small></small></label>
+    <label class="campo ancho"><span>RUC receptor (cliente)</span><input id="f_rucReceptor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
     <label class="campo"><span>Número</span><input id="f_numeroCompleto" inputmode="numeric" placeholder="000-000-0000000"><small></small></label>
     <label class="campo"><span>Fecha</span><input type="date" id="f_fecha"><small></small></label>
     <label class="campo"><span>Condición</span>
