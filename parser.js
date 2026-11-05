@@ -90,75 +90,141 @@ const CAMPOS_IA = ['tipo', 'rucEmisor', 'dvEmisor', 'razonSocial', 'rucReceptor'
   'condicion', 'total5', 'total10', 'exenta', 'total', 'iva', 'cdc', 'cuenta', 'descripcion'];
 
 // ---------- Cuentas de ContAdis (solo las que puede llevar una factura de compra) ----------
-// Texto exacto de ContAdis, incluidos sus errores de escritura ("LUBRICANES"), para que el script coincida.
+// [Id de ContAdis, texto exacto]. El texto se copia tal cual de ContAdis, incluidos los nombres
+// cortados (182 y 184). El Excel lleva solo el texto; el Id queda aquí como referencia.
+// Nombres repetidos en ContAdis (79/80, 81-82/16-17, 193/201) se incluyen una sola vez.
 const CUENTAS_COMPRA = [
-  { grupo: 'Mercaderías y costos', cuentas: [
-    'COSTO DE MERCADERÍAS GRAVADAS POR EL IVA',
-    'COSTO DE MERCADERÍAS EXENTAS DEL IVA',
-    'COSTO DE MERCADERÍAS - ZONA FRANCA',
-    'COSTO DE SERVICIOS GRAVADOS',
-    'COSTO DE VENTAS EXENTAS DEL IVA',
-    'COSTO DE VENTAS DE SOJA Y SUS DERIVADOS',
-    'COSTO DE VENTAS DE MAÍZ',
-    'COSTO DE VENTAS DE TRIGO',
-    'COSTO DE VENTAS DE OTROS PRODUCTOS AGRÍCOLAS',
-    'COSTO DE VENTAS DE GANADO',
-    'COSTO DE VENTAS DE PRODUCTOS FRUTÍCOLAS Y HORTÍCOLAS',
-    'COSTO DE VENTAS DE PRODUCTOS DE LA EXPLOTACIÓN FORESTAL',
-    'COSTO DE EXPORTACIONES A EMPRESAS VINCULADAS',
-    'COSTO DE EXPORTACIONES A TERCEROS NO VINCULADOS',
-    'COSTO DE OTROS PRODUCTOS AGRÍCOLAS EXPORTADOS',
-    'COSTO DE PRODUCTOS FARMACÉUTICOS EXPORTADOS',
-    'COSTO DE MAQUINARIAS Y EQUIPOS EXPORTADOS',
-    'COSTO DE OTROS PRODUCTOS INDUSTRIALIZADOS EXPORTADOS',
-    'COSTO DE OTROS PRODUCTOS EXPORTADOS',
-    'COSTO DE VENTAS A EXTRANJEROS',
-    'COSTO DE VENTAS A DISTRIBUIDORES LOCALES',
-    'COSTO DE VENTAS A CLIENTES LOCALES',
-    'COSTO DE VENTAS POR RÉGIMEN DE MAQUILA',
-    'COSTO DE VENTAS BAJO OTROS REGÍMENES ESPECIALES',
-    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AGROPECUARIO',
-    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE GANADO',
-    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVIDAD'
+  { grupo: 'Mercaderías e inventario', cuentas: [
+    [67, 'MERCADERÍAS GRAVADAS POR EL IVA AL 10%'],
+    [68, 'MERCADERÍAS GRAVADAS POR EL IVA AL 5%'],
+    [69, 'MERCADERÍAS EXENTAS DEL IVA'],
+    [70, 'MERCADERÍAS RÉGIMEN DE TURISMO'],
+    [71, 'MERCADERÍAS ZONA FRANCA'],
+    [72, 'MERCADERÍAS RÉGIMEN DE MAQUILA'],
+    [73, 'MERCADERÍAS OTROS REGÍMENES ESPECIALES'],
+    [77, 'MATERIAS PRIMAS'],
+    [78, 'MATERIALES, SUMINISTROS Y REPUESTOS'],
+    [79, 'PRODUCTOS AGRÍCOLAS'],
+    [81, 'ACTIVOS BIOLÓGICOS EN PRODUCCIÓN'],
+    [82, 'ACTIVOS BIOLÓGICOS EN DESARROLLO'],
+    [83, 'IMPORTACIONES EN CURSO']
   ] },
-  { grupo: 'Gastos', cuentas: [
-    'ÚTILES DE OFICINA',
-    'COMBUSTIBLES Y LUBRICANES',
-    'AGUA, LUZ, TELÉFONO E INTERNET',
-    'ALQUILERES',
-    'HONORARIOS PERSONALES',
-    'REPARACIONES Y MANTENIMIENTOS',
-    'SEGUROS PAGADOS',
-    'MOVILIDAD',
-    'FLETES PAGADOS',
-    'PUBLICIDAD Y PROPAGANDA',
-    'GASTOS DE REPRESENTACIÓN',
-    'VIÁTICOS A VENDEDORES',
-    'COMISIONES PAGADAS SOBRE VENTAS',
-    'OTROS GASTOS DE VENTAS',
-    'OTROS BENEFICIOS AL PERSONAL'
+  { grupo: 'Activo fijo', cuentas: [
+    [91, 'INMUEBLES'],
+    [92, 'RODADOS/TRANSPORTES'],
+    [93, 'MUEBLES, ÚTILES Y ENSERES'],
+    [94, 'MAQUINARIAS'],
+    [95, 'EQUIPOS'],
+    [96, 'HERRAMIENTAS'],
+    [98, 'MEJORAS EN PREDIO AJENO'],
+    [99, 'BIENES INCORPORADOS AL AMPARO DE LA LEY Nº 60/90']
   ] },
-  { grupo: 'Financieros e impuestos', cuentas: [
-    'COMISIONES Y GASTOS BANCARIOS OPERACIONALES',
-    'COMISIONES Y GASTOS BANCARIOS SOBRE OPERACIONES ACREDITICIAS',
-    'INTERESES PAGADOS A ENTIDADES BANCARIAS Y FINANCIERAS',
-    'OTROS INTERESES PAGADOS',
-    'IMPUESTOS, PATENTES, TASAS Y OTRAS CONTRIBUCIONES',
-    'MULTAS Y SANCIONES',
-    'GASTOS DE COBRANZAS',
-    'JUICIOS Y GASTOS JUDICIALES',
-    'DONACIONES Y CONTRIBUCIONES',
-    'GASTOS PAGADOS EN EL EXTERIOR'
+  { grupo: 'Intangibles y cargos diferidos', cuentas: [
+    [103, 'GASTOS DE CONSTITUCIÓN'],
+    [104, 'GASTOS DE ORGANIZACIÓN'],
+    [105, 'GASTOS DE DESARROLLO'],
+    [106, 'GASTOS DE PROYECTOS DE INVERSIÓN'],
+    [108, 'LICENCIAS, MARCAS Y PATENTES'],
+    [109, 'FRANQUICIAS']
+  ] },
+  { grupo: 'Pagos por adelantado', cuentas: [
+    [9, 'ALQUILERES PAGADOS POR ADELANTADO'],
+    [10, 'SEGUROS A DEVENGAR']
+  ] },
+  { grupo: 'Costos', cuentas: [
+    [155, 'COSTO DE MERCADERÍAS GRAVADAS POR EL IVA'],
+    [156, 'COSTO DE MERCADERÍAS EXENTAS DEL IVA'],
+    [157, 'COSTO DE VENTAS DE SOJA Y SUS DERIVADOS'],
+    [158, 'COSTO DE VENTAS DE MAÍZ'],
+    [159, 'COSTO DE VENTAS DE TRIGO'],
+    [160, 'COSTO DE VENTAS DE OTROS PRODUCTOS AGRÍCOLAS'],
+    [161, 'COSTO DE VENTAS DE GANADO'],
+    [162, 'COSTO DE VENTAS DE PRODUCTOS FRUTÍCOLAS Y HORTÍCOLAS'],
+    [163, 'COSTO DE VENTAS DE PRODUCTOS DE LA EXPLOTACIÓN FORESTAL'],
+    [164, 'COSTO DE EXPORTACIONES A EMPRESAS VINCULADAS'],
+    [165, 'COSTO DE EXPORTACIONES A TERCEROS NO VINCULADOS'],
+    [166, 'COSTO DE OTROS PRODUCTOS AGRÍCOLAS EXPORTADOS'],
+    [167, 'COSTO DE PRODUCTOS FARMACÉUTICOS EXPORTADOS'],
+    [168, 'COSTO DE MAQUINARIAS Y EQUIPOS EXPORTADOS'],
+    [169, 'COSTO DE OTROS PRODUCTOS INDUSTRIALIZADOS EXPORTADOS'],
+    [170, 'COSTO DE OTROS PRODUCTOS EXPORTADOS'],
+    [171, 'COSTO DE SERVICIOS GRAVADOS'],
+    [172, 'COSTO DE VENTAS A EXTRANJEROS'],
+    [173, 'COSTO DE VENTAS A DISTRIBUIDORES LOCALES'],
+    [174, 'COSTO DE VENTAS A CLIENTES LOCALES'],
+    [175, 'COSTO DE MERCADERÍAS - ZONA FRANCA'],
+    [176, 'COSTO DE VENTAS POR RÉGIMEN DE MAQUILA'],
+    [177, 'COSTO DE VENTAS BAJO OTROS REGÍMENES ESPECIALES'],
+    [178, 'COSTO DE VENTAS EXENTAS DEL IVA'],
+    [182, '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AG'],
+    [183, '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE GANADO'],
+    [184, '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVID']
+  ] },
+  { grupo: 'Gastos de ventas', cuentas: [
+    [193, 'OTROS BENEFICIOS AL PERSONAL'],
+    [194, 'COMISIONES PAGADAS SOBRE VENTAS'],
+    [195, 'VIÁTICOS A VENDEDORES'],
+    [196, 'PUBLICIDAD Y PROPAGANDA'],
+    [197, 'FLETES PAGADOS'],
+    [198, 'OTROS GASTOS DE VENTAS']
+  ] },
+  { grupo: 'Gastos de administración', cuentas: [
+    [203, 'GASTOS DE REPRESENTACIÓN'],
+    [204, 'HONORARIOS PERSONALES'],
+    [205, 'ALQUILERES'],
+    [206, 'AGUA, LUZ, TELÉFONO E INTERNET'],
+    [207, 'MOVILIDAD'],
+    [208, 'COMBUSTIBLES Y LUBRICANTES'],
+    [209, 'REPARACIONES Y MANTENIMIENTOS'],
+    [210, 'SEGUROS PAGADOS'],
+    [211, 'ÚTILES DE OFICINA']
+  ] },
+  { grupo: 'Gastos financieros y otros', cuentas: [
+    [212, 'GASTOS PAGADOS EN EL EXTERIOR'],
+    [213, 'JUICIOS Y GASTOS JUDICIALES'],
+    [214, 'GASTOS DE COBRANZAS'],
+    [215, 'DONACIONES Y CONTRIBUCIONES'],
+    [216, 'COMISIONES Y GASTOS BANCARIOS OPERACIONALES'],
+    [217, 'IMPUESTOS, PATENTES, TASAS Y OTRAS CONTRIBUCIONES'],
+    [218, 'MULTAS Y SANCIONES'],
+    [219, 'INTERESES PAGADOS A ENTIDADES BANCARIAS Y FINANCIERAS'],
+    [220, 'OTROS INTERESES PAGADOS'],
+    [221, 'COMISIONES Y GASTOS BANCARIOS SOBRE OPERACIONES ACREDITICIAS']
   ] }
 ];
-const CUENTAS = CUENTAS_COMPRA.flatMap(g => g.cuentas);
+const CUENTAS = CUENTAS_COMPRA.flatMap(g => g.cuentas.map(c => c[1]));
+const ID_CUENTA = Object.fromEntries(CUENTAS_COMPRA.flatMap(g => g.cuentas.map(c => [c[1], c[0]])));
+// Mercaderías para reventa: inventario según la tasa con mayor monto
+const MERCADERIAS_POR_TASA = {
+  total10: 'MERCADERÍAS GRAVADAS POR EL IVA AL 10%',
+  total5: 'MERCADERÍAS GRAVADAS POR EL IVA AL 5%',
+  exenta: 'MERCADERÍAS EXENTAS DEL IVA'
+};
+// Textos usados en versiones anteriores de la app -> texto actual de ContAdis
+const CUENTAS_RENOMBRADAS = {
+  'COMBUSTIBLES Y LUBRICANES': 'COMBUSTIBLES Y LUBRICANTES',
+  '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AGROPECUARIO': '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AG',
+  '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVIDAD': '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVID'
+};
 const MAX_DESCRIPCION = 60;
 
 const sinAcentos = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 // Devuelve la cuenta exacta del listado (sin importar mayúsculas, acentos ni espacios) o '' si no está
 function normalizarCuenta(txt) {
   const t = sinAcentos(txt);
-  return t ? (CUENTAS.find(c => sinAcentos(c) === t) || '') : '';
+  if (!t) return '';
+  const viejo = Object.keys(CUENTAS_RENOMBRADAS).find(v => sinAcentos(v) === t);
+  if (viejo) return CUENTAS_RENOMBRADAS[viejo];
+  return CUENTAS.find(c => sinAcentos(c) === t) || '';
+}
+
+// Si la cuenta es de mercaderías por tasa (10 %, 5 % o exentas), elige la tasa con mayor monto
+function cuentaMercaderiaPorTasa(f) {
+  const tasas = Object.values(MERCADERIAS_POR_TASA);
+  if (!tasas.includes(f.cuenta)) return f.cuenta;
+  const montos = Object.keys(MERCADERIAS_POR_TASA).map(k => [k, Number(f[k]) || 0]);
+  const [mayor, monto] = montos.reduce((a, b) => (b[1] > a[1] ? b : a));
+  return monto > 0 ? MERCADERIAS_POR_TASA[mayor] : f.cuenta;
 }
 function normalizarDescripcion(txt) {
   return String(txt ?? '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, MAX_DESCRIPCION);
@@ -187,7 +253,7 @@ function sugerenciaProveedor(memoria, clienteId, rucEmisor) {
   const m = memoria || memoriaVacia();
   const ruc = String(rucEmisor ?? '').replace(/^0+/, '');
   const c = ((m.cuentas || {})[clienteId] || {})[ruc] || {};
-  return { timbrado: (m.timbrados || {})[ruc] || '', cuenta: c.cuenta || '', descripcion: c.descripcion || '' };
+  return { timbrado: (m.timbrados || {})[ruc] || '', cuenta: normalizarCuenta(c.cuenta), descripcion: c.descripcion || '' };
 }
 function recordarProveedor(memoria, clienteId, f) {
   const m = memoria && memoria.timbrados ? memoria : memoriaVacia();
@@ -377,6 +443,7 @@ function normalizarIA(datos, origen = 'IA') {
     f[c] = montoFlexible(d[c]);
     if (d[c] !== null && d[c] !== undefined && d[c] !== '' && f[c] === null) revisar.add(c);
   }
+  f.cuenta = cuentaMercaderiaPorTasa(f);
 
   // Si hay CDC, completa lo que falte y marca lo que no coincida
   const c = datosDeCdc(f.cdc);
@@ -412,6 +479,7 @@ function completarFactura(f) {
     total5: null, total10: null, exenta: null, revisar: [], clienteId: '', cuenta: '', descripcion: ''
   }, f);
   if (typeof r.excluirConciliacion !== 'boolean') r.excluirConciliacion = excluirPorDefecto(r.tipo);
+  if (r.cuenta) r.cuenta = normalizarCuenta(r.cuenta) || r.cuenta; // textos de versiones anteriores
   if (!r.id) r.id = claveFactura(r);
   return r;
 }
@@ -436,7 +504,7 @@ function armarPromptIA(actividades) {
 - total: total a pagar.
 - iva: total del IVA (5 % + 10 %).
 - cdc: CDC de 44 dígitos sin espacios, o null si no tiene.
-- cuenta: exactamente una de las CUENTAS de abajo, según lo que se compra y la actividad del cliente. Si el cliente revende lo comprado o lo usa en su actividad (mercaderías), usa "COSTO DE MERCADERÍAS GRAVADAS POR EL IVA", o "COSTO DE MERCADERÍAS EXENTAS DEL IVA" si todo es exento. Si es un gasto propio (combustible, útiles, servicios, honorarios, alquiler, etc.), usa la cuenta de gasto que corresponda.
+- cuenta: exactamente una de las CUENTAS de abajo, según lo que se compra y la actividad del cliente. Mercaderías que el cliente revende: la cuenta de inventario de la tasa con mayor monto ("MERCADERÍAS GRAVADAS POR EL IVA AL 10%", "MERCADERÍAS GRAVADAS POR EL IVA AL 5%" o "MERCADERÍAS EXENTAS DEL IVA"). Insumos para producir: "MATERIAS PRIMAS" o "MATERIALES, SUMINISTROS Y REPUESTOS". Bienes durables (vehículos, muebles, equipos, maquinarias, herramientas, inmuebles): la cuenta de activo fijo. Gastos propios (combustible, útiles, servicios, honorarios, alquiler, etc.): la cuenta de gasto que corresponda.
 - descripcion: resumen corto y general de lo comprado (máximo ${MAX_DESCRIPCION} caracteres). Un solo ítem: su nombre tal como figura. Varios ítems del mismo tipo: el tipo general (ej. "GALLETITAS", "BEBIDAS VARIAS"), sin marcas ni presentaciones. Ítems de distintos tipos: "MERCADERÍAS VARIAS".
 - revisar: lista con los nombres de las claves que no se leen con claridad o de las que dudas.
 Montos: números enteros en guaraníes, sin separadores de miles.
@@ -514,7 +582,8 @@ if (typeof module !== 'undefined') {
     excluirPorDefecto, montoFlexible, separarRuc, formatearNumero, normalizarFecha, normalizarCondicion,
     claveFactura, datosDeCdc, validarFactura, normalizarIA, completarFactura, extraerJson,
     rucBase, rucCoincide, validarCliente,
-    CUENTAS_COMPRA, CUENTAS, MAX_DESCRIPCION, normalizarCuenta, normalizarDescripcion, validarComplementos, faltantes,
+    CUENTAS_COMPRA, CUENTAS, ID_CUENTA, MERCADERIAS_POR_TASA, CUENTAS_RENOMBRADAS, cuentaMercaderiaPorTasa,
+    MAX_DESCRIPCION, normalizarCuenta, normalizarDescripcion, validarComplementos, faltantes,
     armarPromptIA, memoriaVacia, sugerenciaProveedor, recordarProveedor
   };
 }

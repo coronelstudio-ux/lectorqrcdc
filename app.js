@@ -160,7 +160,7 @@ function guardarMemoria() { escribirLS(KEY_PROVEEDORES, JSON.stringify(memoria))
 // Opciones del listado de cuentas (agrupadas) para las listas desplegables
 function pintarCuentas() {
   const html = '<option value="">— Elige la cuenta —</option>' + CUENTAS_COMPRA.map(g =>
-    `<optgroup label="${esc(g.grupo)}">${g.cuentas.map(c => `<option>${esc(c)}</option>`).join('')}</optgroup>`).join('');
+    `<optgroup label="${esc(g.grupo)}">${g.cuentas.map(([, nombre]) => `<option>${esc(nombre)}</option>`).join('')}</optgroup>`).join('');
   document.querySelectorAll('.sel-cuenta').forEach(sel => { sel.innerHTML = html; });
 }
 

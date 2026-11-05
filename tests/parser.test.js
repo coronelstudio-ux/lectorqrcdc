@@ -219,7 +219,7 @@ prueba('normalizarIA: electrónica sin QR completa datos desde el CDC', () => {
   const cdc = cdcSintetico('20261120', '0000777');
   const f = p.normalizarIA({ tipo: null, cdc: cdc.replace(/(\d{4})/g, '$1 '), rucEmisor: null, dvEmisor: null,
     numeroCompleto: null, fecha: null, total10: 11000, total5: 0, exenta: 0, total: 11000, iva: 1000, revisar: [],
-    timbrado: '87654321', cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'NAFTA' });
+    timbrado: '87654321', cuenta: 'COMBUSTIBLES Y LUBRICANTES', descripcion: 'NAFTA' });
   assert.strictEqual(f.tipo, 'Electrónica sin QR');
   assert.strictEqual(f.excluirConciliacion, false);
   assert.strictEqual(f.cdc, cdc);
@@ -303,12 +303,39 @@ prueba('completarFactura: conserva el cliente y deja vacío si no hay', () => {
 });
 
 // ---------- Cuenta, descripción y timbrado ----------
-prueba('CUENTAS: listado de compras sin repetidos y con el texto de ContAdis', () => {
+prueba('CUENTAS: 81 conceptos de compra, sin repetidos y con el texto e Id de ContAdis', () => {
+  assert.strictEqual(p.CUENTAS.length, 81);
   assert.strictEqual(new Set(p.CUENTAS).size, p.CUENTAS.length);
-  assert.ok(p.CUENTAS.includes('COMBUSTIBLES Y LUBRICANES'));
-  assert.ok(p.CUENTAS.includes('(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AGROPECUARIO'));
-  assert.ok(!p.CUENTAS.includes('SUELDOS Y JORNALES')); // no viene de una factura de compra
-  assert.ok(!p.CUENTAS.some(c => c.startsWith('VENTAS')));
+  assert.strictEqual(new Set(Object.values(p.ID_CUENTA)).size, p.CUENTAS.length);
+  assert.strictEqual(p.ID_CUENTA['COMBUSTIBLES Y LUBRICANTES'], 208);
+  assert.strictEqual(p.ID_CUENTA['MERCADERÍAS GRAVADAS POR EL IVA AL 10%'], 67);
+  assert.strictEqual(p.ID_CUENTA['RODADOS/TRANSPORTES'], 92);
+  assert.strictEqual(p.ID_CUENTA['SEGUROS A DEVENGAR'], 10);
+  // 182 y 184 van cortados como en ContAdis
+  assert.ok(p.CUENTAS.includes('(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AG'));
+  assert.ok(p.CUENTAS.includes('(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVID'));
+  // No vienen de una factura de compra
+  for (const c of ['SUELDOS Y JORNALES', 'APORTE PATRONAL', 'Caja', 'IVA - CRÉDITO FISCAL', 'PROVEEDORES LOCALES',
+    'DEPRECIACIONES DEL EJERCICIO', 'PRODUCTOS TERMINADOS EXENTOS DEL IVA', 'REMUNERACIÓN PERSONAL SUPERIOR']) {
+    assert.ok(!p.CUENTAS.includes(c), 'no debería estar: ' + c);
+  }
+  assert.ok(!p.CUENTAS.some(c => c.startsWith('VENTAS') || c.startsWith('INGRESOS') || c.startsWith('INGSOS')));
+});
+prueba('normalizarCuenta: textos de versiones anteriores pasan al texto actual', () => {
+  assert.strictEqual(p.normalizarCuenta('COMBUSTIBLES Y LUBRICANES'), 'COMBUSTIBLES Y LUBRICANTES');
+  assert.strictEqual(p.normalizarCuenta('(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AGROPECUARIO'),
+    '(-) COSTO DE PRODUCCIÓN Y/O TENENCIA DE BIENES DEL SECTOR AG');
+  assert.strictEqual(p.completarFactura({ cuenta: 'COMBUSTIBLES Y LUBRICANES' }).cuenta, 'COMBUSTIBLES Y LUBRICANTES');
+});
+prueba('cuentaMercaderiaPorTasa: inventario según la tasa con mayor monto', () => {
+  const m10 = 'MERCADERÍAS GRAVADAS POR EL IVA AL 10%', m5 = 'MERCADERÍAS GRAVADAS POR EL IVA AL 5%', mex = 'MERCADERÍAS EXENTAS DEL IVA';
+  assert.strictEqual(p.cuentaMercaderiaPorTasa({ cuenta: m10, total10: 1000, total5: 5000, exenta: 0 }), m5);
+  assert.strictEqual(p.cuentaMercaderiaPorTasa({ cuenta: m5, total10: 9000, total5: 1000, exenta: 0 }), m10);
+  assert.strictEqual(p.cuentaMercaderiaPorTasa({ cuenta: m10, total10: 0, total5: 0, exenta: 300 }), mex);
+  assert.strictEqual(p.cuentaMercaderiaPorTasa({ cuenta: m5, total10: null, total5: null, exenta: null }), m5); // sin montos no cambia
+  assert.strictEqual(p.cuentaMercaderiaPorTasa({ cuenta: 'ALQUILERES', total10: 0, total5: 9000 }), 'ALQUILERES'); // otras cuentas no cambian
+  const f = p.normalizarIA({ tipo: 'Manual', cuenta: m10, total10: 2200, total5: 21000, exenta: 0, total: 23200 });
+  assert.strictEqual(f.cuenta, m5);
 });
 prueba('normalizarCuenta: sin importar mayúsculas, acentos ni espacios', () => {
   assert.strictEqual(p.normalizarCuenta('utiles de  oficina'), 'ÚTILES DE OFICINA');
@@ -344,14 +371,17 @@ prueba('ESQUEMA_IA: la cuenta solo puede ser del listado', () => {
 });
 prueba('memoria por proveedor: timbrado global y cuenta por cliente', () => {
   let m = p.memoriaVacia();
-  m = p.recordarProveedor(m, 'c1', { rucEmisor: '080000001', timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'nafta' });
-  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c1', '80000001'), { timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'NAFTA' });
+  m = p.recordarProveedor(m, 'c1', { rucEmisor: '080000001', timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANTES', descripcion: 'nafta' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c1', '80000001'), { timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANTES', descripcion: 'NAFTA' });
   assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c2', '80000001'), { timbrado: '12345678', cuenta: '', descripcion: '' });
   assert.deepStrictEqual(p.sugerenciaProveedor(null, 'c1', '1'), { timbrado: '', cuenta: '', descripcion: '' });
   // Datos inválidos no se recuerdan
   m = p.recordarProveedor(m, 'c1', { rucEmisor: '80000001', timbrado: '99', cuenta: 'OTRA', descripcion: 'x' });
   assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').timbrado, '12345678');
-  assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').cuenta, 'COMBUSTIBLES Y LUBRICANES');
+  assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').cuenta, 'COMBUSTIBLES Y LUBRICANTES');
+  // Memoria guardada con un texto viejo se sugiere con el texto actual
+  const vieja = { timbrados: {}, cuentas: { c1: { '7': { cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'NAFTA' } } } };
+  assert.strictEqual(p.sugerenciaProveedor(vieja, 'c1', '7').cuenta, 'COMBUSTIBLES Y LUBRICANTES');
 });
 
 console.log(fallas.join('\n\n'));
