@@ -306,7 +306,7 @@ prueba('completarFactura: conserva el cliente y deja vacío si no hay', () => {
 prueba('CUENTAS: 81 conceptos de compra, sin repetidos y con el texto e Id de ContAdis', () => {
   assert.strictEqual(p.CUENTAS.length, 81);
   assert.strictEqual(new Set(p.CUENTAS).size, p.CUENTAS.length);
-  assert.strictEqual(new Set(Object.values(p.ID_CUENTA)).size, p.CUENTAS.length);
+  assert.strictEqual(new Set(Object.values(p.ID_CUENTA)).size, p.CUENTAS.length + p.CUENTAS_VENTAS.length);
   assert.strictEqual(p.ID_CUENTA['COMBUSTIBLES Y LUBRICANTES'], 208);
   assert.strictEqual(p.ID_CUENTA['MERCADERÍAS GRAVADAS POR EL IVA AL 10%'], 67);
   assert.strictEqual(p.ID_CUENTA['RODADOS/TRANSPORTES'], 92);
@@ -382,6 +382,111 @@ prueba('memoria por proveedor: timbrado global y cuenta por cliente', () => {
   // Memoria guardada con un texto viejo se sugiere con el texto actual
   const vieja = { timbrados: {}, cuentas: { c1: { '7': { cuenta: 'COMBUSTIBLES Y LUBRICANES', descripcion: 'NAFTA' } } } };
   assert.strictEqual(p.sugerenciaProveedor(vieja, 'c1', '7').cuenta, 'COMBUSTIBLES Y LUBRICANTES');
+});
+
+// ---------- Ventas ----------
+const venta = () => ({
+  operacion: 'venta', tipo: 'Manual', origen: 'Manual', rucEmisor: '1234567', dvEmisor: '8',
+  rucReceptor: '7654321', dvReceptor: '0', razonSocialReceptor: 'COMPRADOR EJEMPLO', numeroCompleto: '001-001-0000050',
+  fecha: '2026-11-15', total5: 0, total10: 110000, exenta: 0, total: 110000, iva: 10000, cdc: '',
+  timbrado: '11223344', cuenta: 'VENTAS DE MERCADERÍAS GRAVADAS POR EL IVA', descripcion: 'BEBIDAS VARIAS'
+});
+const opc = { timbrados: ['11223344'] };
+prueba('CUENTAS_VENTAS: 30 conceptos de venta con su Id', () => {
+  assert.strictEqual(p.CUENTAS_VENTAS.length, 30);
+  assert.strictEqual(new Set(p.CUENTAS_VENTAS).size, 30);
+  assert.strictEqual(p.ID_CUENTA['VENTAS DE MERCADERÍAS GRAVADAS POR EL IVA'], 135);
+  assert.strictEqual(p.ID_CUENTA['INGSOS POR PRODUCCIÓN Y/O TENENCIA DE BIENES DE LA ACTIVIDA'], 181);
+  for (const c of ['(-) DESCUENTOS CONCEDIDOS', '(-) DEVOLUCIONES', 'DESCUENTOS OBTENIDOS', 'SUBVENCIONES']) assert.ok(!p.CUENTAS_VENTAS.includes(c));
+  assert.ok(!p.CUENTAS_VENTAS.some(c => p.CUENTAS.includes(c)), 'compras y ventas no comparten cuentas');
+  assert.strictEqual(p.cuentasDe('venta'), p.CUENTAS_VENTAS);
+  assert.strictEqual(p.cuentasDe('compra'), p.CUENTAS);
+});
+prueba('validarFactura venta: correcta', () => {
+  const r = p.validarFactura(venta(), '2026-11', '1234567', opc);
+  assert.ok(r.ok, JSON.stringify(r.errores));
+});
+prueba('validarFactura venta: el emisor debe ser el cliente', () => {
+  assert.ok(p.validarFactura(Object.assign(venta(), { rucEmisor: '9999999' }), '2026-11', '1234567', opc).errores.rucEmisor);
+});
+prueba('validarFactura venta: timbrado registrado del cliente', () => {
+  assert.ok(p.validarFactura(Object.assign(venta(), { timbrado: '99999999' }), '2026-11', '1234567', opc).errores.timbrado);
+  assert.ok(p.validarFactura(venta(), '2026-11', '1234567', { timbrados: [] }).errores.timbrado);
+  assert.deepStrictEqual(p.faltantes(venta(), opc), []);
+  assert.deepStrictEqual(p.faltantes(venta(), {}), ['timbrado']);
+});
+prueba('validarFactura venta: comprador con RUC y DV, o consumidor final', () => {
+  assert.ok(p.validarFactura(Object.assign(venta(), { dvReceptor: '' }), '2026-11', '1234567', opc).errores.rucReceptor);
+  assert.ok(p.validarFactura(Object.assign(venta(), { razonSocialReceptor: '' }), '2026-11', '1234567', opc).errores.razonSocialReceptor);
+  const cf = Object.assign(venta(), { rucReceptor: p.CONSUMIDOR_FINAL.ruc, dvReceptor: p.CONSUMIDOR_FINAL.dv, razonSocialReceptor: p.CONSUMIDOR_FINAL.razonSocial });
+  assert.ok(p.validarFactura(cf, '2026-11', '1234567', opc).ok);
+});
+prueba('validarFactura venta: la cuenta debe ser de ventas', () => {
+  assert.ok(p.validarFactura(Object.assign(venta(), { cuenta: 'ALQUILERES' }), '2026-11', '1234567', opc).errores.cuenta);
+  assert.ok(p.validarFactura(Object.assign(base(), { cuenta: 'VENTAS DE SERVICIOS GRAVADOS' }), '2026-11').errores.cuenta);
+});
+prueba('claveFactura: la venta no choca con una compra del mismo CDC', () => {
+  const cdc = cdcSintetico();
+  assert.strictEqual(p.claveFactura({ cdc }), cdc);
+  assert.strictEqual(p.claveFactura({ cdc, operacion: 'venta' }), 'V|' + cdc);
+  assert.ok(p.claveFactura(venta()).startsWith('V|001-001-0000050|1234567|'));
+});
+prueba('normalizarIA venta: comprador, consumidor final y cuenta de ventas', () => {
+  const f = p.normalizarIA({ tipo: 'Manual', rucEmisor: '1234567', dvEmisor: '8', rucReceptor: '7654321-0', razonSocialReceptor: 'Comprador Ejemplo',
+    cuenta: 'ventas de mercaderias gravadas por el iva', descripcion: 'bebidas', total10: 11000, total: 11000, iva: 1000 }, 'IA', 'venta');
+  assert.strictEqual(f.operacion, 'venta');
+  assert.strictEqual(f.rucReceptor, '7654321');
+  assert.strictEqual(f.dvReceptor, '0');
+  assert.strictEqual(f.razonSocialReceptor, 'COMPRADOR EJEMPLO');
+  assert.strictEqual(f.cuenta, 'VENTAS DE MERCADERÍAS GRAVADAS POR EL IVA');
+  assert.ok(!f.revisar.includes('razonSocial'));
+  const g = p.normalizarIA({ cuenta: 'ALQUILERES' }, 'IA', 'venta');
+  assert.strictEqual(g.cuenta, '');
+  assert.ok(g.revisar.includes('rucReceptor'));
+});
+prueba('promptIA y esquemaIA de ventas', () => {
+  const t = p.promptIA('Despensa', 'venta');
+  assert.ok(t.includes('facturas de venta') && t.includes('Actividades del cliente: Despensa'));
+  for (const c of p.CUENTAS_VENTAS) assert.ok(t.includes(c), 'falta ' + c);
+  for (const c of p.CAMPOS_IA_VENTA) assert.ok(t.includes(c + ':'), 'el prompt no menciona ' + c);
+  assert.ok(t.includes(p.CONSUMIDOR_FINAL.ruc));
+  assert.strictEqual(p.promptIA('x', 'compra'), p.armarPromptIA('x'));
+  const e = p.esquemaIA('venta');
+  assert.deepStrictEqual(e.required.slice().sort(), [...p.CAMPOS_IA_VENTA, 'revisar'].sort());
+  assert.deepStrictEqual(e.properties.cuenta.anyOf[0].enum, p.CUENTAS_VENTAS);
+  assert.deepStrictEqual(p.esquemaIA('compra'), p.ESQUEMA_IA);
+});
+prueba('memoria de ventas: por comprador y lo último del cliente', () => {
+  let m = p.memoriaVacia();
+  m = p.recordarVenta(m, 'c1', Object.assign(venta(), { descripcion: 'gaseosas' }));
+  assert.deepStrictEqual(p.sugerenciaVenta(m, 'c1', '7654321'), { cuenta: 'VENTAS DE MERCADERÍAS GRAVADAS POR EL IVA', descripcion: 'GASEOSAS' });
+  assert.strictEqual(p.sugerenciaVenta(m, 'c1', '1111111').descripcion, 'GASEOSAS'); // comprador nuevo: lo último del cliente
+  assert.deepStrictEqual(p.sugerenciaVenta(m, 'c2', '7654321'), { cuenta: '', descripcion: '' });
+  assert.deepStrictEqual(p.sugerenciaVenta({ timbrados: {}, cuentas: {} }, 'c1', '1'), { cuenta: '', descripcion: '' }); // memoria vieja
+});
+prueba('aFilaExcelVenta: 25 columnas, comprador primero y CDC al final', () => {
+  const fila = p.aFilaExcelVenta(venta());
+  const cols = Object.keys(fila);
+  assert.strictEqual(cols.length, 25);
+  assert.deepStrictEqual(cols.slice(0, 8), ['Fecha emisión', 'Número', 'Timbrado', 'RUC comprador', 'DV comprador', 'Razón social comprador', 'Cuenta', 'Descripción']);
+  assert.strictEqual(cols[cols.length - 1], 'CDC');
+  assert.strictEqual(fila['RUC emisor (cliente)'], '1234567');
+  assert.strictEqual(fila['Establecimiento'], '001');
+});
+prueba('clientes: timbrados de venta y nombre para archivos', () => {
+  assert.deepStrictEqual(p.separarTimbrados('11223344, 55667788;11223344 '), ['11223344', '55667788']);
+  assert.ok(p.validarCliente({ nombre: 'X', ruc: '1', dv: '1', timbradosVenta: ['123'] }).errores.timbradosVenta);
+  assert.ok(p.validarCliente({ nombre: 'X', ruc: '1', dv: '1', timbradosVenta: ['11223344'] }).ok);
+  assert.strictEqual(p.nombreParaArchivo({ nombre: 'José Pérez Gómez' }), 'Jose_Perez');
+  assert.strictEqual(p.nombreParaArchivo({ nombre: 'Comercial Ejemplo S.A.' }), 'Comercial_Ejemplo');
+  assert.strictEqual(p.nombreParaArchivo({ nombre: 'Muy Largo SA', nombreArchivo: 'Ana Ríos' }), 'Ana_Rios');
+  assert.strictEqual(p.nombreParaArchivo({ nombre: '' }), 'Cliente');
+  assert.strictEqual(p.nombreArchivoExcel({ nombre: 'Juan Pérez' }, 'compra', '2026-11'), 'Compras_Juan_Perez_2026-11.xlsx');
+  assert.strictEqual(p.nombreArchivoExcel({ nombre: 'Juan Pérez' }, 'venta', '2026-11'), 'Ventas_Juan_Perez_2026-11.xlsx');
+});
+prueba('completarFactura: las facturas viejas son compras', () => {
+  assert.strictEqual(p.completarFactura({ cdc: cdcSintetico() }).operacion, 'compra');
+  assert.strictEqual(p.completarFactura({ operacion: 'venta', cuenta: 'ventas de servicios gravados' }).cuenta, 'VENTAS DE SERVICIOS GRAVADOS');
 });
 
 console.log(fallas.join('\n\n'));
