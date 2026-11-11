@@ -18,7 +18,7 @@ En el visor, el botón de cámara con flechas cambia entre la cámara trasera y 
 
 ## Varios clientes
 - Toca el **cliente** en el encabezado para elegirlo, agregar uno (nombre y RUC con DV), editarlo o borrarlo. La primera vez la app pide crear el primero.
-- La lista, los totales y el Excel son del cliente y el período elegidos. El Excel se llama `QR_facturas_<RUC>_<AAAA-MM>.xlsx`.
+- La lista, los totales y el Excel son del cliente y el período elegidos. El Excel se llama `Compras_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` (o `Ventas_…`).
 - Si una factura tiene otro RUC receptor (es de otro cliente) se rechaza. Si ese RUC es de otro cliente registrado, el aviso dice cuál.
 - Las facturas guardadas antes de esta versión se asignan solas al crear el cliente con su RUC receptor.
 
@@ -27,6 +27,13 @@ En el visor, el botón de cámara con flechas cambia entre la cámara trasera y 
 - La app recuerda lo último usado con cada proveedor y lo sugiere: con un proveedor conocido basta tocar **Guardar**.
 - Con IA, la cuenta y la descripción las propone la IA según el detalle y las **actividades del cliente** (se cargan en el perfil del cliente).
 - El Excel no se genera hasta que todas las facturas del período tengan esos datos; las que faltan aparecen primero en la Lista, en ámbar, con el lápiz para completarlas.
+
+## Ventas
+- Elige **Ventas** en la barra bajo el encabezado. Se cargan con **Sin QR** (IA) o **A mano**; no se usa la cámara QR.
+- En el perfil del cliente registra sus **timbrados de venta**: la app solo acepta ventas con uno de ellos.
+- El emisor es siempre el cliente. Para consumidor final marca la casilla (RUC 44444401-7, SIN NOMBRE).
+- Cuenta (conceptos de venta de ContAdis), descripción, condición y "Excluir de conciliación" funcionan igual que en compras.
+- Los Excel se llaman `Compras_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` y `Ventas_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` (el nombre se puede cambiar en el perfil del cliente).
 
 ## Facturas sin QR (lectura con IA)
 1. En **Exportar → Lectura con IA**, elige el proveedor (Gemini, Claude o copiar y pegar) y pega tu API key. Se guarda solo en el celular.
