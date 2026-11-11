@@ -75,6 +75,19 @@
   .chip-periodo input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
 
   main { flex: 1; position: relative; overflow: hidden; }
+
+  /* Selector Compras | Ventas */
+  .modos { display: flex; gap: 6px; padding: 6px 16px 8px; background: #0b1220; }
+  .modos button { flex: 1; padding: 7px 0; border-radius: 999px; font-size: 14px; font-weight: 600; color: #b6c0d4; background: rgba(255,255,255,.06); }
+  .modos button.activa { background: #fff; color: #0b1220; }
+  .modos button[data-op="venta"].activa { background: #1e9e5a; color: #fff; }
+  /* Ventas: solo IA y carga a mano (sin cámara QR) */
+  .modo-venta #btnFoto, .modo-venta #btnCamara, .modo-venta #btnPegar, .modo-venta .visor, .modo-venta .lateral, .modo-venta .pista { display: none !important; }
+  .modo-venta .barra-acciones { grid-template-columns: repeat(2, 1fr); }
+  .modo-venta .barra-acciones .redondo { width: 64px; height: 64px; }
+  .modo-venta .accion-chica { font-size: 13px; }
+  #hojaRevision.modo-venta .solo-compra, #hojaRevision:not(.modo-venta) .solo-venta { display: none !important; }
+  .chip.venta { background: rgba(30,158,90,.15); color: var(--ok); }
   .vista { position: absolute; inset: 0; overflow-y: auto; display: none; }
   .vista.activa { display: block; }
 
@@ -203,7 +216,7 @@
 
   /* Aviso (toast) */
   #aviso {
-    position: fixed; left: 50%; top: calc(70px + env(safe-area-inset-top)); transform: translate(-50%, -20px);
+    position: fixed; left: 50%; top: calc(112px + env(safe-area-inset-top)); transform: translate(-50%, -20px);
     width: min(92vw, 460px); padding: 13px 16px; border-radius: 14px; background: #1f2937; color: #fff;
     font-size: 15px; display: flex; gap: 10px; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,.35);
     opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 30;
@@ -320,6 +333,10 @@
   </label>
   </div>
 </header>
+<div class="modos" role="tablist" aria-label="Tipo de factura">
+  <button class="activa" data-op="compra" role="tab">Compras</button>
+  <button data-op="venta" role="tab">Ventas</button>
+</div>
 
 <main>
   <!-- Escanear -->
@@ -327,7 +344,7 @@
     <video id="video" autoplay playsinline muted></video>
     <div class="apagada">
       <div class="icono"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg></div>
-      <p>Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.</p>
+      <p id="textoApagada">Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.</p>
     </div>
     <div class="visor"><div class="marco" id="marco"><i></i><i></i><i></i><i></i><div class="linea"></div></div></div>
 
@@ -371,7 +388,7 @@
   <!-- Lista -->
   <section id="vistaLista" class="vista">
     <div class="contenido">
-      <div class="titulo">Facturas</div>
+      <div class="titulo" id="tituloLista">Facturas de compra</div>
       <p class="subtitulo" id="contador"></p>
       <div class="buscar">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -385,7 +402,7 @@
   <section id="vistaExportar" class="vista">
     <div class="contenido">
       <div class="titulo">Exportar</div>
-      <p class="subtitulo">Excel del período para guardar en el celular</p>
+      <p class="subtitulo" id="subtituloExportar">Excel de compras del período para guardar en el celular</p>
       <div class="panel">
         <div class="metricas">
           <div class="metrica ancha"><span>Cliente</span><b id="expCliente">—</b></div>
@@ -401,7 +418,7 @@
       </div>
       <button class="boton" id="btnGuardar">
         <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
-        Guardar Excel
+        <span id="textoGuardar">Guardar Excel de compras</span>
       </button>
       <p class="nota" id="notaGuardar">Si el celular lo permite, se abre <b>Guardar como</b> para elegir la carpeta (puede ser una de Google Drive). Si no, el archivo queda en <b>Descargas</b>.</p>
       <p class="nota">Para elegir la carpeta en cada descarga, en Chrome: menú <b>⋮ → Configuración → Descargas → Preguntar dónde guardar los archivos</b>.</p>
@@ -492,6 +509,8 @@
     <label class="campo ancho"><span>Nombre o razón social</span><input id="c_nombre" autocomplete="off"><small></small></label>
     <label class="campo ancho"><span>RUC con DV</span><input id="c_ruc" inputmode="numeric" placeholder="0000000-0" autocomplete="off"><small></small></label>
     <label class="campo ancho"><span>Actividades (la IA las usa para elegir la cuenta)</span><textarea id="c_actividades" maxlength="500" placeholder="Ej.: Despensa. Venta de bebidas."></textarea><small></small></label>
+    <label class="campo ancho"><span>Timbrados de venta (8 dígitos, separados por coma)</span><input id="c_timbrados" inputmode="numeric" autocomplete="off" placeholder="Ej.: 12345678, 87654321"><small></small></label>
+    <label class="campo ancho"><span>Nombre para archivos (nombre y apellido)</span><input id="c_nombreArchivo" maxlength="40" autocomplete="off" placeholder="Si lo dejas vacío: las dos primeras palabras del nombre"><small></small></label>
   </div>
   <p class="nota" id="cliNotaRuc" hidden>El RUC no se puede cambiar porque el cliente ya tiene facturas guardadas.</p>
   <div class="botones fijos">
@@ -553,10 +572,13 @@
       <select id="f_tipo"><option>Electrónica sin QR</option><option>Manual</option></select><small></small></label>
     <label class="campo"><span>Origen de los datos</span><input id="f_origen" readonly><small></small></label>
     <label class="casilla ancho"><input type="checkbox" id="f_excluirConciliacion">Excluir de conciliación</label>
-    <label class="campo"><span>RUC emisor</span><input id="f_rucEmisor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
-    <label class="campo"><span>Timbrado</span><input id="f_timbrado" inputmode="numeric"><small></small></label>
-    <label class="campo ancho"><span>Razón social</span><input id="f_razonSocial"><small></small></label>
-    <label class="campo ancho"><span>RUC receptor (cliente)</span><input id="f_rucReceptor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
+    <label class="campo"><span><span class="solo-compra">RUC emisor</span><span class="solo-venta">RUC emisor (cliente)</span></span><input id="f_rucEmisor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
+    <label class="campo"><span>Timbrado</span><input id="f_timbrado" inputmode="numeric" list="timbradosCliente"><small></small></label>
+    <datalist id="timbradosCliente"></datalist>
+    <label class="campo ancho solo-compra"><span>Razón social</span><input id="f_razonSocial"><small></small></label>
+    <label class="casilla ancho solo-venta"><input type="checkbox" id="f_consumidorFinal">Consumidor final (RUC 44444401-7, SIN NOMBRE)</label>
+    <label class="campo ancho"><span><span class="solo-compra">RUC receptor (cliente)</span><span class="solo-venta">RUC comprador</span></span><input id="f_rucReceptor" inputmode="numeric" placeholder="0000000-0"><small></small></label>
+    <label class="campo ancho solo-venta"><span>Razón social comprador</span><input id="f_razonSocialReceptor" autocomplete="off"><small></small></label>
     <label class="campo ancho"><span>Cuenta</span><select id="f_cuenta" class="sel-cuenta"></select><small></small></label>
     <label class="campo ancho"><span>Descripción</span><input id="f_descripcion" maxlength="60" autocomplete="off" placeholder="Ej.: MERCADERÍAS VARIAS"><small></small></label>
     <label class="campo"><span>Número</span><input id="f_numeroCompleto" inputmode="numeric" placeholder="000-000-0000000"><small></small></label>

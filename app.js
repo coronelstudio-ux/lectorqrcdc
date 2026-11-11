@@ -6,6 +6,7 @@ const KEY_IA = 'lectorQR_ia';
 const KEY_CLIENTES = 'lectorQR_clientes';
 const KEY_CLIENTE = 'lectorQR_cliente';
 const KEY_PROVEEDORES = 'lectorQR_proveedores';
+const KEY_OPERACION = 'lectorQR_operacion';
 const KEY_CLAVE = { gemini: 'lectorQR_clave_gemini', claude: 'lectorQR_clave_claude' };
 const MODELOS = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-5-5' };
 const NOMBRE_IA = { gemini: 'Gemini', claude: 'Claude', manual: 'copiar y pegar' };
@@ -25,6 +26,8 @@ const el = {
   kCuenta: $('k_cuenta'), kDescripcion: $('k_descripcion'), kTimbrado: $('k_timbrado'),
   btnCancelarComp: $('btnCancelarComp'), btnGuardarComp: $('btnGuardarComp'),
   cActividades: $('c_actividades'), expIncompletas: $('expIncompletas'),
+  cTimbrados: $('c_timbrados'), cNombreArchivo: $('c_nombreArchivo'), timbradosCliente: $('timbradosCliente'),
+  textoApagada: $('textoApagada'), tituloLista: $('tituloLista'), subtituloExportar: $('subtituloExportar'), textoGuardar: $('textoGuardar'),
   btnCliente: $('btnCliente'), clienteTexto: $('clienteTexto'), expCliente: $('expCliente'),
   hojaClientes: $('hojaClientes'), cliSubtitulo: $('cliSubtitulo'), cliLista: $('cliLista'), cliHuerfanas: $('cliHuerfanas'),
   cliFormTitulo: $('cliFormTitulo'), cNombre: $('c_nombre'), cRuc: $('c_ruc'), cliNotaRuc: $('cliNotaRuc'),
@@ -59,6 +62,7 @@ let clientes = [];        // [{ id, nombre, ruc, dv }]
 let clienteId = '';
 let editandoCliente = '';
 let memoria = memoriaVacia(); // lo último usado con cada proveedor (timbrado, cuenta, descripción)
+let operacion = 'compra'; // 'compra' | 'venta': qué facturas se ven, cargan y exportan
 let completando = null;       // { modo: 'nuevo' | 'editar', f } mientras la ventana Completar está abierta
 let stream = null;
 let pista = null;
@@ -154,14 +158,41 @@ function cargarClientes() {
 function cargarMemoria() {
   try { memoria = JSON.parse(leerLS(KEY_PROVEEDORES) || 'null') || memoriaVacia(); } catch { memoria = memoriaVacia(); }
   if (!memoria.timbrados || !memoria.cuentas) memoria = memoriaVacia();
+  memoria.ventas = memoria.ventas || {};
 }
 function guardarMemoria() { escribirLS(KEY_PROVEEDORES, JSON.stringify(memoria)); }
 
-// Opciones del listado de cuentas (agrupadas) para las listas desplegables
-function pintarCuentas() {
-  const html = '<option value="">— Elige la cuenta —</option>' + CUENTAS_COMPRA.map(g =>
+// Opciones del listado de cuentas (agrupadas) para una lista desplegable, según compra o venta
+function pintarCuentas(sel, op = 'compra') {
+  if (sel.dataset.op === op) return;
+  sel.dataset.op = op;
+  sel.innerHTML = '<option value="">— Elige la cuenta —</option>' + gruposCuentas(op).map(g =>
     `<optgroup label="${esc(g.grupo)}">${g.cuentas.map(([, nombre]) => `<option>${esc(nombre)}</option>`).join('')}</optgroup>`).join('');
-  document.querySelectorAll('.sel-cuenta').forEach(sel => { sel.innerHTML = html; });
+}
+// Timbrados de venta registrados del cliente elegido (para validar ventas)
+function opcionesCliente() {
+  const cli = clienteActual();
+  return { timbrados: (cli && cli.timbradosVenta) || [] };
+}
+const faltan = f => faltantes(f, opcionesCliente());
+const esDeLaVista = f => (f.operacion || 'compra') === operacion;
+
+// Compras | Ventas: cambia lo que se ve, se carga y se exporta
+function cambiarOperacion(op) {
+  operacion = op === 'venta' ? 'venta' : 'compra';
+  escribirLS(KEY_OPERACION, operacion);
+  document.querySelectorAll('.modos button').forEach(b => b.classList.toggle('activa', b.dataset.op === operacion));
+  const venta = operacion === 'venta';
+  if (venta && stream) detenerCamara();
+  el.vistaEscanear.classList.toggle('modo-venta', venta);
+  el.textoApagada.textContent = venta
+    ? 'Ventas: carga las facturas emitidas por el cliente con Sin QR (lectura con IA) o A mano.'
+    : 'Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.';
+  el.tituloLista.textContent = venta ? 'Facturas de venta' : 'Facturas de compra';
+  el.subtituloExportar.textContent = `Excel de ${venta ? 'ventas' : 'compras'} del período para guardar en el celular`;
+  el.textoGuardar.textContent = `Guardar Excel de ${venta ? 'ventas' : 'compras'}`;
+  el.buscar.value = '';
+  render();
 }
 
 function guardarClientes() {
@@ -191,7 +222,7 @@ function guardarLista() { escribirLS(KEY_LISTA, JSON.stringify(lista)); }
 
 function listaDelPeriodo() {
   if (!clienteId) return []; // sin cliente no se muestra nada (ni las facturas sin asignar)
-  return lista.filter(f => f.periodo === periodoActual() && f.clienteId === clienteId);
+  return lista.filter(f => f.periodo === periodoActual() && f.clienteId === clienteId && esDeLaVista(f));
 }
 
 function render() {
@@ -218,31 +249,34 @@ function render() {
   const excluidas = items.filter(f => f.excluirConciliacion).length;
   el.expConciliar.textContent = items.length - excluidas;
   el.expExcluidas.textContent = excluidas;
-  el.expIncompletas.textContent = items.filter(f => faltantes(f).length).length;
+  el.expIncompletas.textContent = items.filter(f => faltan(f).length).length;
 
   const q = el.buscar.value.trim().toLowerCase();
   const visibles = items
-    .filter(f => !q || [f.numeroCompleto, f.rucEmisor, f.cdc, f.razonSocial].some(v => String(v || '').toLowerCase().includes(q)))
+    .filter(f => !q || [f.numeroCompleto, f.rucEmisor, f.rucReceptor, f.cdc, f.razonSocial, f.razonSocialReceptor].some(v => String(v || '').toLowerCase().includes(q)))
     .slice().reverse() // la más reciente arriba
-    .sort((a, b) => (faltantes(b).length ? 1 : 0) - (faltantes(a).length ? 1 : 0)); // las incompletas primero
+    .sort((a, b) => (faltan(b).length ? 1 : 0) - (faltan(a).length ? 1 : 0)); // las incompletas primero
 
   if (!visibles.length) {
     el.tabla.innerHTML = `<div class="vacio"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-      <p>${!cli ? 'Elige o crea un cliente para empezar.' : items.length ? 'Ninguna factura coincide con la búsqueda.' : 'Todavía no hay facturas de este cliente en el período.<br>Ve a Escanear para empezar.'}</p></div>`;
+      <p>${!cli ? 'Elige o crea un cliente para empezar.' : items.length ? 'Ninguna factura coincide con la búsqueda.' : `Todavía no hay ${operacion === 'venta' ? 'ventas' : 'compras'} de este cliente en el período.<br>Ve a Escanear para empezar.`}</p></div>`;
     return;
   }
-  el.tabla.innerHTML = visibles.map(f => { const falta = faltantes(f); return `
+  el.tabla.innerHTML = visibles.map(f => { const falta = faltan(f); const v = esVenta(f); return `
     <div class="tarjeta${f.excluirConciliacion ? ' excluida' : ''}${falta.length ? ' incompleta' : ''}">
       <div class="avatar"><svg viewBox="0 0 24 24"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 1 .7V2l-1 .7-3-2-3 2-3-2-3 2-3-2z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
       <div class="datos">
         <div class="fila1"><span class="num">${esc(f.numeroCompleto)}</span><span class="monto">Gs. ${gs(f.total)}</span></div>
-        <div class="fila2">${esc(f.fecha)} · RUC ${esc(f.rucEmisor)}-${esc(f.dvEmisor)} · IVA ${gs(f.iva)}</div>
-        ${f.razonSocial ? `<div class="fila2">${esc(f.razonSocial)}</div>` : ''}
+        ${v
+          ? `<div class="fila2">${esc(f.fecha)} · Comprador ${esc(f.rucReceptor)}-${esc(f.dvReceptor)} · IVA ${gs(f.iva)}</div>
+             ${f.razonSocialReceptor ? `<div class="fila2">${esc(f.razonSocialReceptor)}</div>` : ''}`
+          : `<div class="fila2">${esc(f.fecha)} · RUC ${esc(f.rucEmisor)}-${esc(f.dvEmisor)} · IVA ${gs(f.iva)}</div>
+             ${f.razonSocial ? `<div class="fila2">${esc(f.razonSocial)}</div>` : ''}`}
         ${f.descripcion || f.cuenta ? `<div class="fila2 cuenta">${esc(f.descripcion || '—')} · ${esc(f.cuenta || 'sin cuenta')}</div>` : ''}
         ${f.timbrado ? `<div class="fila2">Timbrado ${esc(f.timbrado)}</div>` : ''}
         ${f.cdc ? `<div class="cdc">${esc(f.cdc)}</div>` : ''}
         <div class="chips">
-          <span class="chip">${esc(f.tipo)}</span>
+          ${v ? '<span class="chip venta">Venta</span>' : ''}<span class="chip">${esc(f.tipo)}</span>
           <span class="chip${f.origen === 'IA' ? ' ia' : ''}">Origen: ${esc(f.origen)}</span>
           ${falta.length ? `<span class="chip dudas">Falta: ${esc(falta.join(', '))}</span>` : ''}
           ${f.excluirConciliacion ? '' : '<span class="etiqueta" style="margin:0">Pendiente Marangatu</span>'}
@@ -257,6 +291,7 @@ function render() {
 }
 
 function agregar(texto) {
+  if (operacion === 'venta') { avisar('Las ventas se cargan con Sin QR (IA) o A mano.', 'info'); return false; }
   if (!listo(true)) return false;
   const cli = clienteActual();
   const r = parsearEnlace(texto, periodoActual(), cli.ruc);
@@ -287,15 +322,22 @@ function agregar(texto) {
 // ---------- Ventana Completar (cuenta, descripción y timbrado) ----------
 
 function abrirCompletar(f, modo) {
-  const sug = sugerenciaProveedor(memoria, clienteId, f.rucEmisor);
+  const v = esVenta(f);
+  const cli = clienteActual();
+  const sug = v
+    ? Object.assign({ timbrado: cli && cli.timbradosVenta && cli.timbradosVenta.length === 1 ? cli.timbradosVenta[0] : '' }, sugerenciaVenta(memoria, clienteId, f.rucReceptor))
+    : sugerenciaProveedor(memoria, clienteId, f.rucEmisor);
+  pintarCuentas(el.kCuenta, f.operacion);
   completando = { modo, f };
   el.compTitulo.textContent = modo === 'nuevo' ? 'QR leído: completa los datos' : 'Cuenta, descripción y timbrado';
-  el.compResumen.textContent = `${f.numeroCompleto} · RUC ${f.rucEmisor}-${f.dvEmisor}${f.razonSocial ? ' · ' + f.razonSocial : ''} · Gs. ${gs(f.total)}`;
+  el.compResumen.textContent = v
+    ? `Venta ${f.numeroCompleto} · Comprador ${f.rucReceptor}-${f.dvReceptor}${f.razonSocialReceptor ? ' · ' + f.razonSocialReceptor : ''} · Gs. ${gs(f.total)}`
+    : `${f.numeroCompleto} · RUC ${f.rucEmisor}-${f.dvEmisor}${f.razonSocial ? ' · ' + f.razonSocial : ''} · Gs. ${gs(f.total)}`;
   el.kCuenta.value = f.cuenta || sug.cuenta;
   el.kDescripcion.value = f.descripcion || sug.descripcion;
   el.kTimbrado.value = f.timbrado || sug.timbrado;
   const sugirio = (!f.cuenta && sug.cuenta) || (!f.timbrado && sug.timbrado);
-  el.compNota.textContent = sugirio ? 'Completado con lo último que usaste con este proveedor. Revisa y guarda.' : '';
+  el.compNota.textContent = sugirio ? `Completado con lo último que usaste con este ${v ? 'cliente' : 'proveedor'}. Revisa y guarda.` : '';
   abrirHoja(el.hojaCompletar);
   const { ok } = validarCompletar();
   setTimeout(() => {
@@ -306,11 +348,13 @@ function abrirCompletar(f, modo) {
 
 function validarCompletar() {
   const datos = {
+    operacion: completando ? completando.f.operacion : 'compra',
     cuenta: el.kCuenta.value,
     descripcion: normalizarDescripcion(el.kDescripcion.value),
     timbrado: el.kTimbrado.value.replace(/\D/g, '')
   };
-  const errores = validarComplementos(datos);
+  const errores = validarComplementos(datos, opcionesCliente());
+  delete datos.operacion;
   for (const [c, input] of [['cuenta', el.kCuenta], ['descripcion', el.kDescripcion], ['timbrado', el.kTimbrado]]) {
     const campo = input.closest('.campo');
     const tocado = input.value !== '';
@@ -339,7 +383,7 @@ function guardarCompletar() {
   }
   Object.assign(f, datos);
   if (modo === 'nuevo') lista.push(f);
-  memoria = recordarProveedor(memoria, f.clienteId || clienteId, f);
+  memoria = esVenta(f) ? recordarVenta(memoria, f.clienteId || clienteId, f) : recordarProveedor(memoria, f.clienteId || clienteId, f);
   guardarMemoria();
   guardarLista();
   completando = null;
@@ -531,8 +575,8 @@ async function leerFoto(archivo) {
 async function guardarExcel() {
   const items = listaDelPeriodo();
   if (!clienteActual()) { avisar('Elige primero el cliente.', 'err'); return; }
-  if (!items.length) { avisar('No hay facturas de este cliente en el período.', 'err'); return; }
-  const incompletas = items.filter(f => faltantes(f).length);
+  if (!items.length) { avisar(`No hay ${operacion === 'venta' ? 'ventas' : 'compras'} de este cliente en el período.`, 'err'); return; }
+  const incompletas = items.filter(f => faltan(f).length);
   if (incompletas.length) {
     avisar(`Faltan datos en ${incompletas.length} factura(s). Complétalas en la Lista (marcadas en ámbar) para generar el Excel.`, 'err');
     el.buscar.value = '';
@@ -542,11 +586,12 @@ async function guardarExcel() {
   }
   if (typeof XLSX === 'undefined') { avisar('No se cargó la librería de Excel. Revisa la conexión.', 'err'); return; }
 
-  const ws = XLSX.utils.json_to_sheet(items.map(aFilaExcel));
+  const venta = operacion === 'venta';
+  const ws = XLSX.utils.json_to_sheet(items.map(venta ? aFilaExcelVenta : aFilaExcel));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'QR');
+  XLSX.utils.book_append_sheet(wb, ws, venta ? 'Ventas' : 'Compras');
   const datos = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const nombre = `QR_facturas_${clienteActual().ruc}_${periodoActual()}.xlsx`;
+  const nombre = nombreArchivoExcel(clienteActual(), operacion, periodoActual());
   const tipo = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const blob = new Blob([datos], { type: tipo });
 
@@ -614,6 +659,7 @@ function renderClientes() {
         <b>${esc(c.nombre)}</b>
         <small>RUC ${esc(c.ruc)}-${esc(c.dv)} · ${facturasDe(c.id)} factura(s)${c.id === clienteId ? ' · <span class="marca-activo">EN USO</span>' : ''}</small>
         <small>${c.actividades ? esc(c.actividades.length > 70 ? c.actividades.slice(0, 70) + '…' : c.actividades) : 'Sin actividades cargadas'}</small>
+        <small>Timbrados de venta: ${(c.timbradosVenta || []).length ? esc(c.timbradosVenta.join(', ')) : 'ninguno'} · Archivos: ${esc(nombreParaArchivo(c))}</small>
       </button>
       <button class="icono-btn editar" data-id="${esc(c.id)}" aria-label="Editar cliente">${ICO_EDITAR}</button>
       <button class="icono-btn borrar-cli" data-id="${esc(c.id)}" aria-label="Borrar cliente">${ICO_BORRAR}</button>
@@ -632,11 +678,13 @@ function limpiarFormCliente() {
   el.cNombre.value = '';
   el.cRuc.value = '';
   el.cActividades.value = '';
+  el.cTimbrados.value = '';
+  el.cNombreArchivo.value = '';
   el.cRuc.disabled = false;
   el.cliNotaRuc.hidden = true;
   el.cliFormTitulo.textContent = 'Nuevo cliente';
   el.btnGuardarCli.textContent = 'Agregar cliente';
-  for (const i of [el.cNombre, el.cRuc, el.cActividades]) { i.closest('.campo').classList.remove('error'); i.closest('.campo').querySelector('small').textContent = ''; }
+  for (const i of [el.cNombre, el.cRuc, el.cActividades, el.cTimbrados, el.cNombreArchivo]) { i.closest('.campo').classList.remove('error'); i.closest('.campo').querySelector('small').textContent = ''; }
 }
 
 function abrirClientes() {
@@ -674,13 +722,17 @@ function guardarCliente() {
   const { ruc, dv } = separarRuc(el.cRuc.value);
   const previo = clientes.find(c => c.id === editandoCliente);
   const c = { id: editandoCliente || nuevoIdCliente(), nombre: el.cNombre.value.trim(), ruc: rucBase(ruc) || ruc, dv,
-    actividades: el.cActividades.value.trim() };
+    actividades: el.cActividades.value.trim(),
+    timbradosVenta: separarTimbrados(el.cTimbrados.value),
+    nombreArchivo: el.cNombreArchivo.value.trim() };
   if (previo && el.cRuc.disabled) { c.ruc = previo.ruc; c.dv = previo.dv; }
   const { ok, errores } = validarCliente(c, clientes);
   const marcar = (input, msg) => { input.closest('.campo').classList.toggle('error', !!msg); input.closest('.campo').querySelector('small').textContent = msg || ''; };
   marcar(el.cNombre, errores.nombre);
   marcar(el.cRuc, errores.ruc);
   marcar(el.cActividades, errores.actividades);
+  marcar(el.cTimbrados, errores.timbradosVenta);
+  marcar(el.cNombreArchivo, errores.nombreArchivo);
   if (!ok) return;
   if (previo) {
     Object.assign(previo, c);
@@ -709,6 +761,8 @@ function editarCliente(id) {
   el.cNombre.value = c.nombre;
   el.cRuc.value = `${c.ruc}-${c.dv}`;
   el.cActividades.value = c.actividades || '';
+  el.cTimbrados.value = (c.timbradosVenta || []).join(', ');
+  el.cNombreArchivo.value = c.nombreArchivo || '';
   const conFacturas = facturasDe(id) > 0;
   el.cRuc.disabled = conFacturas;
   el.cliNotaRuc.hidden = !conFacturas;
@@ -837,7 +891,7 @@ async function pedirJson(url, opciones) {
 // Instrucciones con las actividades del cliente elegido (para que la IA elija la cuenta)
 function promptCliente() {
   const cli = clienteActual();
-  return armarPromptIA(cli ? cli.actividades : '');
+  return promptIA(cli ? cli.actividades : '', operacion);
 }
 
 // Claude: Messages API directo desde el navegador, con respuesta JSON según el esquema
@@ -854,7 +908,7 @@ async function leerConClaude(b64, clave, modelo) {
       model: modelo,
       max_tokens: 16000,
       system: promptCliente(),
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: ESQUEMA_IA } },
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: esquemaIA(operacion) } },
       messages: [{
         role: 'user',
         content: [
@@ -907,7 +961,7 @@ async function leerConIA(archivo) {
     const leer = c.proveedor === 'claude' ? leerConClaude : leerConGemini;
     const texto = await leer(b64, clave, c.modelos[c.proveedor] || MODELOS[c.proveedor]);
     const datos = extraerJson(texto);
-    abrirRevision(normalizarIA(datos, 'IA'), URL.createObjectURL(archivo));
+    abrirRevision(borradorIA(datos), URL.createObjectURL(archivo));
   } catch (e) {
     avisar(e.message || 'No se pudo leer la factura.', 'err');
     el.iaOpcionesFoto.hidden = false;
@@ -917,11 +971,20 @@ async function leerConIA(archivo) {
   }
 }
 
+// Borrador a partir de la respuesta de la IA. En ventas el emisor es el cliente: si la IA no lo leyó,
+// se completa con el cliente; si leyó otro RUC, se deja para que la validación lo marque.
+function borradorIA(datos) {
+  const f = normalizarIA(datos, 'IA', operacion);
+  const cli = clienteActual();
+  if (esVenta(f) && cli && !f.rucEmisor) { f.rucEmisor = cli.ruc; f.dvEmisor = cli.dv; }
+  return f;
+}
+
 function revisarJsonPegado() {
   try {
     const datos = extraerJson(el.iaJson.value);
     el.iaJson.value = '';
-    abrirRevision(normalizarIA(datos, 'IA'), null);
+    abrirRevision(borradorIA(datos), null);
   } catch (e) {
     avisar('El texto pegado no es un JSON válido. Copia solo la respuesta de la IA.', 'err');
   }
@@ -930,16 +993,19 @@ function revisarJsonPegado() {
 function cargarAMano() {
   if (!listo()) return;
   if (stream) detenerCamara();
+  const cli = clienteActual();
+  const venta = operacion === 'venta';
   abrirRevision({
-    tipo: 'Manual', origen: 'Manual', excluirConciliacion: excluirPorDefecto('Manual'),
-    rucEmisor: '', dvEmisor: '', razonSocial: '', numeroCompleto: '', fecha: '', timbrado: '', condicion: '',
+    operacion, tipo: 'Manual', origen: 'Manual', excluirConciliacion: excluirPorDefecto('Manual'),
+    rucEmisor: venta ? cli.ruc : '', dvEmisor: venta ? cli.dv : '', razonSocial: '',
+    rucReceptor: '', dvReceptor: '', razonSocialReceptor: '', numeroCompleto: '', fecha: '', timbrado: '', condicion: '',
     total5: null, total10: null, exenta: null, total: null, iva: null, cdc: '', revisar: []
   }, null);
 }
 
 // ---------- Formulario de revisión ----------
 
-const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'rucReceptor', 'cuenta', 'descripcion', 'numeroCompleto', 'fecha', 'condicion',
+const CAMPOS_FORM = ['tipo', 'origen', 'rucEmisor', 'timbrado', 'razonSocial', 'rucReceptor', 'razonSocialReceptor', 'cuenta', 'descripcion', 'numeroCompleto', 'fecha', 'condicion',
   'total10', 'total5', 'exenta', 'total', 'iva', 'cdc'];
 const campoForm = c => $('f_' + c);
 const montoTexto = v => (v === null || v === undefined || v === '' ? '' : gs(v));
@@ -962,38 +1028,62 @@ function abrirRevision(f, foto) {
   campoForm('tipo').value = f.tipo === 'Electrónica sin QR' ? 'Electrónica sin QR' : 'Manual';
   campoForm('origen').value = f.origen;
   $('f_excluirConciliacion').checked = !!f.excluirConciliacion;
+  const v = esVenta(f);
+  const cli = clienteActual();
+  el.hojaRevision.classList.toggle('modo-venta', v);
+  pintarCuentas(campoForm('cuenta'), f.operacion);
+  el.timbradosCliente.innerHTML = v && cli ? (cli.timbradosVenta || []).map(t => `<option value="${esc(t)}">`).join('') : '';
   campoForm('rucEmisor').value = f.rucEmisor ? `${f.rucEmisor}${f.dvEmisor ? '-' + f.dvEmisor : ''}` : '';
-  const sug = sugerenciaProveedor(memoria, clienteId, f.rucEmisor);
+  campoForm('rucEmisor').readOnly = v; // en ventas el emisor es el cliente
+  const sug = v
+    ? Object.assign({ timbrado: cli && (cli.timbradosVenta || []).length === 1 ? cli.timbradosVenta[0] : '' }, sugerenciaVenta(memoria, clienteId, f.rucReceptor))
+    : sugerenciaProveedor(memoria, clienteId, f.rucEmisor);
   campoForm('timbrado').value = f.timbrado || sug.timbrado;
   campoForm('cuenta').value = f.cuenta || sug.cuenta;
   campoForm('descripcion').value = f.descripcion || sug.descripcion;
   campoForm('razonSocial').value = f.razonSocial || '';
-  const cli = clienteActual();
-  const receptor = f.rucReceptor || (cli ? cli.ruc : '');
-  campoForm('rucReceptor').value = cli && rucCoincide(receptor, cli.ruc) ? `${cli.ruc}-${cli.dv}` : receptor;
+  if (v) {
+    const cf = f.rucReceptor === CONSUMIDOR_FINAL.ruc;
+    $('f_consumidorFinal').checked = cf;
+    campoForm('rucReceptor').value = f.rucReceptor ? `${f.rucReceptor}${f.dvReceptor ? '-' + f.dvReceptor : ''}` : '';
+    campoForm('razonSocialReceptor').value = f.razonSocialReceptor || '';
+    campoForm('rucReceptor').readOnly = cf;
+    campoForm('razonSocialReceptor').readOnly = cf;
+  } else {
+    campoForm('rucReceptor').readOnly = false;
+    const receptor = f.rucReceptor || (cli ? cli.ruc : '');
+    campoForm('rucReceptor').value = cli && rucCoincide(receptor, cli.ruc) ? `${cli.ruc}-${cli.dv}` : receptor;
+  }
   campoForm('numeroCompleto').value = f.numeroCompleto || '';
   campoForm('fecha').value = normalizarFecha(f.fecha) || '';
   campoForm('condicion').value = f.condicion || '';
   for (const c of ['total10', 'total5', 'exenta', 'total', 'iva']) campoForm(c).value = montoTexto(f[c]);
   campoForm('cdc').value = f.cdc || '';
 
-  const dudosos = new Set((f.revisar || []).map(c => (c === 'dvEmisor' ? 'rucEmisor' : c)));
+  const dudosos = new Set((f.revisar || []).map(c => (c === 'dvEmisor' ? 'rucEmisor' : c === 'dvReceptor' ? 'rucReceptor' : c)));
   for (const c of CAMPOS_FORM) campoForm(c).closest('.campo').classList.toggle('dudoso', dudosos.has(c));
   validarFormulario();
 }
 
 function leerFormulario() {
   const { ruc, dv } = separarRuc(campoForm('rucEmisor').value);
+  const receptor = separarRuc(campoForm('rucReceptor').value);
   const numTxt = campoForm('numeroCompleto').value.trim();
   const fecha = campoForm('fecha').value;
-  return {
+  const v = borrador ? esVenta(borrador) : operacion === 'venta';
+  const extra = v ? {
+    rucReceptor: receptor.ruc.replace(/^0+/, ''),
+    dvReceptor: receptor.dv,
+    razonSocialReceptor: campoForm('razonSocialReceptor').value.trim().toUpperCase()
+  } : { rucReceptor: rucBase(campoForm('rucReceptor').value) };
+  return Object.assign({
+    operacion: v ? 'venta' : 'compra',
     tipo: campoForm('tipo').value,
     origen: borrador ? borrador.origen : 'Manual',
     excluirConciliacion: $('f_excluirConciliacion').checked,
     rucEmisor: ruc.replace(/^0+/, ''),
     dvEmisor: dv,
-    razonSocial: campoForm('razonSocial').value.trim(),
-    rucReceptor: rucBase(campoForm('rucReceptor').value),
+    razonSocial: v ? '' : campoForm('razonSocial').value.trim(),
     numeroCompleto: formatearNumero(numTxt) || numTxt,
     fecha,
     periodo: fecha.slice(0, 7),
@@ -1007,13 +1097,13 @@ function leerFormulario() {
     total: montoFlexible(campoForm('total').value),
     iva: montoFlexible(campoForm('iva').value),
     cdc: campoForm('cdc').value.replace(/\s/g, '')
-  };
+  }, extra);
 }
 
 function validarFormulario() {
   const f = leerFormulario();
   const cli = clienteActual();
-  const { ok, errores } = validarFactura(f, periodoActual(), cli ? cli.ruc : '');
+  const { ok, errores } = validarFactura(f, periodoActual(), cli ? cli.ruc : '', opcionesCliente());
   for (const c of CAMPOS_FORM) {
     const campo = campoForm(c).closest('.campo');
     campo.classList.toggle('error', !!errores[c]);
@@ -1049,7 +1139,7 @@ function confirmarRevision() {
     revisar: []
   });
   lista.push(f);
-  memoria = recordarProveedor(memoria, clienteId, f);
+  memoria = esVenta(f) ? recordarVenta(memoria, clienteId, f) : recordarProveedor(memoria, clienteId, f);
   guardarMemoria();
   guardarLista();
   cerrarHoja();
@@ -1149,6 +1239,7 @@ el.archivoFoto.addEventListener('change', () => {
 });
 el.btnPegar.addEventListener('click', () => { abrirHoja(el.hojaEnlace); setTimeout(() => el.manual.focus(), 250); });
 el.btnSinQR.addEventListener('click', abrirSinQR);
+document.querySelectorAll('.modos button').forEach(b => b.addEventListener('click', () => cambiarOperacion(b.dataset.op)));
 el.btnCliente.addEventListener('click', abrirClientes);
 el.btnCancelarCli.addEventListener('click', cerrarHoja);
 el.btnGuardarCli.addEventListener('click', guardarCliente);
@@ -1184,9 +1275,22 @@ el.hojaRevision.addEventListener('input', e => {
 el.hojaRevision.addEventListener('change', e => {
   if (e.target.id === 'f_tipo' && !excluirTocado) $('f_excluirConciliacion').checked = excluirPorDefecto(e.target.value);
   // Proveedor conocido: completa lo vacío con lo último usado (sin gastar IA)
-  if (e.target.id === 'f_rucEmisor') {
+  if (e.target.id === 'f_rucEmisor' && !(borrador && esVenta(borrador))) {
     const sug = sugerenciaProveedor(memoria, clienteId, separarRuc(e.target.value).ruc);
     for (const c of ['timbrado', 'cuenta', 'descripcion']) if (!campoForm(c).value && sug[c]) campoForm(c).value = sug[c];
+  }
+  // Ventas: comprador conocido completa cuenta y descripción
+  if (e.target.id === 'f_rucReceptor' && borrador && esVenta(borrador)) {
+    const sug = sugerenciaVenta(memoria, clienteId, separarRuc(e.target.value).ruc);
+    for (const c of ['cuenta', 'descripcion']) if (!campoForm(c).value && sug[c]) campoForm(c).value = sug[c];
+  }
+  // Consumidor final: RUC genérico 44444401-7 y SIN NOMBRE
+  if (e.target.id === 'f_consumidorFinal') {
+    const cf = e.target.checked;
+    campoForm('rucReceptor').value = cf ? `${CONSUMIDOR_FINAL.ruc}-${CONSUMIDOR_FINAL.dv}` : '';
+    campoForm('razonSocialReceptor').value = cf ? CONSUMIDOR_FINAL.razonSocial : '';
+    campoForm('rucReceptor').readOnly = cf;
+    campoForm('razonSocialReceptor').readOnly = cf;
   }
   if (e.target.id === 'f_excluirConciliacion') excluirTocado = true;
   // Al salir de un monto se muestra con separador de miles
@@ -1247,8 +1351,9 @@ el.btnGuardar.addEventListener('click', guardarExcel);
 el.btnBorrar.addEventListener('click', () => {
   const cli = clienteActual();
   if (!cli) return;
-  if (!confirm(`¿Borrar todas las facturas de ${cli.nombre} en ${textoPeriodo(periodoActual())}?`)) return;
-  lista = lista.filter(f => !(f.periodo === periodoActual() && f.clienteId === cli.id));
+  const tipo = operacion === 'venta' ? 'ventas' : 'compras';
+  if (!confirm(`¿Borrar todas las ${tipo} de ${cli.nombre} en ${textoPeriodo(periodoActual())}?`)) return;
+  lista = lista.filter(f => !(f.periodo === periodoActual() && f.clienteId === cli.id && esDeLaVista(f)));
   guardarLista();
   render();
   avisar('Lista del período vacía.', 'info');
@@ -1271,8 +1376,9 @@ el.periodo.addEventListener('change', () => {
   cargarLista();
   cargarClientes();
   cargarMemoria();
-  pintarCuentas();
+  pintarCuentas(el.kCuenta, 'compra');
+  pintarCuentas(campoForm('cuenta'), 'compra');
   guardarLista(); // guarda la migración de listas viejas
-  render();
+  cambiarOperacion(leerLS(KEY_OPERACION) || 'compra'); // pinta la vista elegida
   if (!clientes.length) abrirClientes(); // primer uso: crear el primer cliente
 })();
