@@ -27,6 +27,9 @@ const el = {
   btnCancelarComp: $('btnCancelarComp'), btnGuardarComp: $('btnGuardarComp'),
   cActividades: $('c_actividades'), expIncompletas: $('expIncompletas'),
   cTimbrados: $('c_timbrados'), cNombreArchivo: $('c_nombreArchivo'), timbradosCliente: $('timbradosCliente'),
+  hojaDiag: $('hojaDiag'), diagMotivo: $('diagMotivo'), diagDetalle: $('diagDetalle'), diagDatos: $('diagDatos'),
+  diagContenido: $('diagContenido'), btnDiagPeriodo: $('btnDiagPeriodo'), btnDiagCliente: $('btnDiagCliente'),
+  btnDiagEkuatia: $('btnDiagEkuatia'), btnDiagCopiar: $('btnDiagCopiar'), btnDiagSeguir: $('btnDiagSeguir'), marcaQR: $('marcaQR'),
   textoApagada: $('textoApagada'), tituloLista: $('tituloLista'), subtituloExportar: $('subtituloExportar'), textoGuardar: $('textoGuardar'),
   btnCliente: $('btnCliente'), clienteTexto: $('clienteTexto'), expCliente: $('expCliente'),
   hojaClientes: $('hojaClientes'), cliSubtitulo: $('cliSubtitulo'), cliLista: $('cliLista'), cliHuerfanas: $('cliHuerfanas'),
@@ -63,7 +66,10 @@ let clienteId = '';
 let editandoCliente = '';
 let memoria = memoriaVacia(); // lo último usado con cada proveedor (timbrado, cuenta, descripción)
 let operacion = 'compra'; // 'compra' | 'venta': qué facturas se ven, cargan y exportan
-let completando = null;       // { modo: 'nuevo' | 'editar', f } mientras la ventana Completar está abierta
+let completando = null;
+let diagnostico = null;   // { texto, d } mientras la ventana "QR no aceptado" está abierta
+let vuelta = 0;           // alterna las estrategias de jsQR entre cuadros
+let marcaTimer = null;       // { modo: 'nuevo' | 'editar', f } mientras la ventana Completar está abierta
 let stream = null;
 let pista = null;
 let timer = null;
@@ -296,14 +302,10 @@ function agregar(texto) {
   const cli = clienteActual();
   const r = parsearEnlace(texto, periodoActual(), cli.ruc);
   if (!r.ok) {
-    let msg = r.error;
-    if (r.periodoDistinto) msg = `Ignorada ${r.factura.numeroCompleto}: es de ${textoPeriodo(r.factura.periodo)}.`;
-    else if (r.rucDistinto) {
-      const otro = clientes.find(c => rucCoincide(c.ruc, r.factura.rucReceptor));
-      msg = otro ? `Ignorada ${r.factura.numeroCompleto}: es de ${otro.nombre}. Cambia de cliente para cargarla.`
-                 : `Ignorada ${r.factura.numeroCompleto}: ${r.error}`;
-    }
-    respuesta(msg, 'err');
+    destellarMarco('err');
+    pitar('err');
+    vibrar('err');
+    abrirDiagnostico(texto);
     return false;
   }
   r.factura.clienteId = cli.id;
@@ -317,6 +319,39 @@ function agregar(texto) {
   vibrar('ok');
   abrirCompletar(r.factura, 'nuevo');
   return true;
+}
+
+// ---------- Ventana "QR no aceptado": motivo, contenido y cómo resolverlo ----------
+
+function abrirDiagnostico(texto) {
+  const cli = clienteActual();
+  const d = diagnosticarQR(texto, periodoActual(), cli ? cli.ruc : '');
+  diagnostico = { texto, d };
+  el.diagMotivo.textContent = d.motivo;
+  el.diagDetalle.textContent = d.detalle;
+  el.diagDetalle.hidden = !d.detalle;
+  el.diagDatos.innerHTML = d.datos.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  el.diagDatos.hidden = !d.datos.length;
+  el.diagContenido.textContent = d.contenido || '(vacío)';
+  // Otro mes: ofrecer cambiar el período y cargarla
+  el.btnDiagPeriodo.hidden = !d.periodoSugerido;
+  if (d.periodoSugerido) el.btnDiagPeriodo.textContent = `Cambiar a ${textoPeriodo(d.periodoSugerido)} y cargar`;
+  // Otro cliente registrado: ofrecer cambiar de cliente y cargarla
+  const otro = d.r && d.r.rucDistinto && d.rucReceptor ? clientes.find(c => rucCoincide(c.ruc, d.rucReceptor)) : null;
+  el.btnDiagCliente.hidden = !otro;
+  if (otro) { el.btnDiagCliente.textContent = `Cambiar a ${otro.nombre} y cargar`; el.btnDiagCliente.dataset.id = otro.id; }
+  el.btnDiagEkuatia.hidden = !d.enlace;
+  if (d.enlace) el.btnDiagEkuatia.href = d.enlace;
+  abrirHoja(el.hojaDiag);
+}
+
+function reintentarDiagnostico(cambio) {
+  if (!diagnostico) return;
+  const texto = diagnostico.texto;
+  cambio();
+  diagnostico = null;
+  render();
+  agregar(texto); // abre Completar o, si sigue sin aceptarse, otra vez el diagnóstico
 }
 
 // ---------- Ventana Completar (cuenta, descripción y timbrado) ----------
@@ -446,29 +481,109 @@ async function iniciarCamara() {
     el.resolucion.textContent = `Cámara: ${el.video.videoWidth}×${el.video.videoHeight}`;
   };
   pista = stream.getVideoTracks()[0];
+  enfoqueContinuo();
   configurarControles();
   el.vistaEscanear.classList.add('escaneando');
   document.getElementById('icoDisparador').innerHTML = ICO_DETENER;
   setEstado('Acerca el QR hasta que ocupe casi todo el recuadro.');
 
-  timer = setInterval(async () => {
-    if (el.video.readyState < 2 || completando) return; // en pausa mientras se completa la factura
-    try {
-      const texto = await detectarEnFuente(el.video, el.video.videoWidth, el.video.videoHeight);
-      if (!texto) return;
-      const ahora = Date.now();
-      if (texto === ultimoTexto && ahora - ultimoMomento < 3000) return;
-      ultimoTexto = texto;
-      ultimoMomento = ahora;
-      agregar(texto);
-    } catch (e) {
-      avisar('Error al leer: ' + e.message, 'err');
+  const miStream = stream;
+  // Un cuadro a la vez: el siguiente intento empieza cuando termina el anterior (no se acumulan)
+  const ciclo = async () => {
+    if (stream !== miStream) return; // la cámara se detuvo o cambió
+    if (el.video.readyState >= 2 && !completando && !diagnostico) {
+      try {
+        const texto = await detectarEnVideo();
+        const ahora = Date.now();
+        if (texto && !(texto === ultimoTexto && ahora - ultimoMomento < 3000)) {
+          ultimoTexto = texto;
+          ultimoMomento = ahora;
+          agregar(texto);
+        }
+      } catch (e) {
+        avisar('Error al leer: ' + e.message, 'err');
+      }
     }
-  }, 300);
+    if (stream === miStream) timer = setTimeout(ciclo, detector ? 80 : 40);
+  };
+  ciclo();
+}
+
+// Enfoque y exposición continuos (si la cámara los permite): ayuda con QR densos
+function enfoqueContinuo() {
+  try {
+    const cap = pista.getCapabilities ? pista.getCapabilities() : {};
+    const ajustes = [];
+    if ((cap.focusMode || []).includes('continuous')) ajustes.push({ focusMode: 'continuous' });
+    if ((cap.exposureMode || []).includes('continuous')) ajustes.push({ exposureMode: 'continuous' });
+    if ((cap.whiteBalanceMode || []).includes('continuous')) ajustes.push({ whiteBalanceMode: 'continuous' });
+    if (ajustes.length) pista.applyConstraints({ advanced: ajustes }).catch(() => {});
+  } catch { /* sin ajustes */ }
+}
+
+// Lectura de un cuadro del video.
+// - Con BarcodeDetector (Chrome Android): solo él; es rápido y el más robusto para QR densos.
+// - Sin él (jsQR): alterna dos estrategias livianas, una por cuadro:
+//   A) cuadro completo reducido a 960 px; B) recuadro central en resolución real (sin ampliar).
+async function detectarEnVideo() {
+  const v = el.video, w = v.videoWidth, h = v.videoHeight;
+  if (!w || !h) return null;
+  if (detector) {
+    const codigos = await detector.detect(v);
+    if (!codigos.length) return null;
+    marcarQR(codigos[0].cornerPoints || [], w, h);
+    return codigos[0].rawValue;
+  }
+  if (typeof jsQR !== 'function') return null;
+  vuelta++;
+  let sx = 0, sy = 0, sw = w, sh = h, escala;
+  if (vuelta % 2) {
+    escala = Math.min(1, 960 / Math.max(w, h));
+  } else {
+    const lado = Math.round(Math.min(w, h) * 0.8);
+    sx = Math.round((w - lado) / 2); sy = Math.round((h - lado) / 2); sw = sh = lado;
+    escala = Math.min(1, 1200 / lado);
+  }
+  const cw = Math.round(sw * escala), ch = Math.round(sh * escala);
+  canvas.width = cw; canvas.height = ch;
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
+  const code = jsQR(ctx.getImageData(0, 0, cw, ch).data, cw, ch, { inversionAttempts: 'dontInvert' });
+  if (!code) return null;
+  const l = code.location;
+  const aVideo = p => ({ x: sx + p.x / escala, y: sy + p.y / escala });
+  marcarQR([l.topLeftCorner, l.topRightCorner, l.bottomRightCorner, l.bottomLeftCorner].map(aVideo), w, h);
+  return code.data;
+}
+
+// Dibuja el contorno del QR detectado sobre el video (object-fit: cover y espejo de la cámara frontal)
+function marcarQR(puntos, vw, vh) {
+  const c = el.marcaQR;
+  const W = c.clientWidth, H = c.clientHeight;
+  if (!W || !H || puntos.length < 4) return;
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const k = Math.max(W / vw, H / vh);
+  const ox = (W - vw * k) / 2, oy = (H - vh * k) / 2;
+  const espejo = camara === 'user';
+  g.clearRect(0, 0, W, H);
+  g.lineWidth = 4;
+  g.strokeStyle = '#4cd964';
+  g.fillStyle = 'rgba(76, 217, 100, .18)';
+  g.beginPath();
+  puntos.forEach((p, i) => {
+    let x = ox + p.x * k; const y = oy + p.y * k;
+    if (espejo) x = W - x;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  });
+  g.closePath();
+  g.fill();
+  g.stroke();
+  clearTimeout(marcaTimer);
+  marcaTimer = setTimeout(() => g.clearRect(0, 0, W, H), 700);
 }
 
 function detenerCamara() {
-  clearInterval(timer);
+  clearTimeout(timer);
   timer = null;
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null;
@@ -639,6 +754,7 @@ function abrirHoja(hoja) {
 function cerrarHoja() {
   if (completando && completando.modo === 'nuevo') avisar(`No se guardó ${completando.f.numeroCompleto}.`, 'warn');
   completando = null;
+  diagnostico = null;
   el.fondoHoja.classList.remove('abierta');
   document.querySelectorAll('.hoja.abierta').forEach(x => x.classList.remove('abierta'));
   borrador = null;
@@ -1239,6 +1355,20 @@ el.archivoFoto.addEventListener('change', () => {
 });
 el.btnPegar.addEventListener('click', () => { abrirHoja(el.hojaEnlace); setTimeout(() => el.manual.focus(), 250); });
 el.btnSinQR.addEventListener('click', abrirSinQR);
+el.btnDiagSeguir.addEventListener('click', cerrarHoja);
+el.btnDiagCopiar.addEventListener('click', async () => {
+  if (!diagnostico) return;
+  try { await navigator.clipboard.writeText(diagnostico.texto); avisar('Contenido copiado.', 'ok'); }
+  catch { avisar('No se pudo copiar. Mantén pulsado el texto para copiarlo.', 'info'); }
+});
+el.btnDiagPeriodo.addEventListener('click', () => reintentarDiagnostico(() => {
+  el.periodo.value = diagnostico.d.periodoSugerido;
+  escribirLS(KEY_PERIODO, periodoActual());
+}));
+el.btnDiagCliente.addEventListener('click', () => reintentarDiagnostico(() => {
+  clienteId = el.btnDiagCliente.dataset.id;
+  guardarClientes();
+}));
 document.querySelectorAll('.modos button').forEach(b => b.addEventListener('click', () => cambiarOperacion(b.dataset.op)));
 el.btnCliente.addEventListener('click', abrirClientes);
 el.btnCancelarCli.addEventListener('click', cerrarHoja);

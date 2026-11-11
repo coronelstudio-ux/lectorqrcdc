@@ -95,6 +95,18 @@
   #vistaEscanear { background: #000; color: #fff; overflow: hidden; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   #video.espejo { transform: scaleX(-1); }
+  #marcaQR { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  /* Ventana de diagnóstico de QR rechazado */
+  .diag-motivo { font-size: 17px; font-weight: 700; color: var(--err); margin: 6px 0 4px; }
+  .diag-detalle { font-size: 14px; color: var(--muted); margin: 0 0 12px; }
+  .diag-datos { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 14px; margin: 0 0 12px; }
+  .diag-datos dt { color: var(--muted); }
+  .diag-datos dd { margin: 0; font-weight: 600; word-break: break-all; }
+  .diag-contenido { font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface-2); border-radius: 10px; padding: 10px;
+    max-height: 120px; overflow: auto; word-break: break-all; white-space: pre-wrap; margin: 0 0 12px; }
+  .diag-acciones { display: grid; gap: 8px; }
+  a.boton { text-decoration: none; }
   .visor { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
   .marco {
     position: relative; width: min(72vw, 52vh, 340px); aspect-ratio: 1; border-radius: 22px;
@@ -342,6 +354,7 @@
   <!-- Escanear -->
   <section id="vistaEscanear" class="vista activa">
     <video id="video" autoplay playsinline muted></video>
+    <canvas id="marcaQR" aria-hidden="true"></canvas>
     <div class="apagada">
       <div class="icono"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg></div>
       <p id="textoApagada">Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.</p>
@@ -516,6 +529,25 @@
   <div class="botones fijos">
     <button class="boton suave" id="btnCancelarCli">Cerrar</button>
     <button class="boton" id="btnGuardarCli">Agregar cliente</button>
+  </div>
+</div>
+
+<div class="hoja alta" id="hojaDiag" role="dialog" aria-label="QR no aceptado">
+  <div class="asa"></div>
+  <h2>QR no aceptado</h2>
+  <p class="diag-motivo" id="diagMotivo"></p>
+  <p class="diag-detalle" id="diagDetalle"></p>
+  <dl class="diag-datos" id="diagDatos"></dl>
+  <div class="seccion" style="margin-top:4px">Contenido del QR</div>
+  <pre class="diag-contenido" id="diagContenido"></pre>
+  <div class="diag-acciones">
+    <button class="boton" id="btnDiagPeriodo" hidden></button>
+    <button class="boton" id="btnDiagCliente" hidden></button>
+    <a class="boton suave" id="btnDiagEkuatia" target="_blank" rel="noopener noreferrer" hidden>Consultar en e-Kuatia</a>
+    <div class="botones">
+      <button class="boton suave" id="btnDiagCopiar">Copiar contenido</button>
+      <button class="boton" id="btnDiagSeguir">Seguir escaneando</button>
+    </div>
   </div>
 </div>
 
