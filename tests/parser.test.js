@@ -489,6 +489,48 @@ prueba('completarFactura: las facturas viejas son compras', () => {
   assert.strictEqual(p.completarFactura({ operacion: 'venta', cuenta: 'ventas de servicios gravados' }).cuenta, 'VENTAS DE SERVICIOS GRAVADOS');
 });
 
+// ---------- Diagnóstico de QR rechazados ----------
+prueba('parsearEnlace: rechaza notas de crédito y remisiones; acepta autofacturas', () => {
+  const nc = '05' + cdcSintetico().slice(2);
+  const r = p.parsearEnlace(enlace(nc, '2026-11-02'), '2026-11');
+  assert.ok(!r.ok && r.tipoDistinto);
+  assert.ok(/nota de crédito/.test(r.error));
+  const auto = '04' + cdcSintetico().slice(2);
+  assert.ok(p.parsearEnlace(enlace(auto, '2026-11-02'), '2026-11').ok);
+});
+prueba('diagnosticarQR: texto, Wi-Fi, CDC suelto y otros sitios', () => {
+  assert.ok(/red Wi-Fi/.test(p.diagnosticarQR('WIFI:S:Casa;T:WPA;P:clave;;', '2026-11').motivo));
+  assert.ok(/texto/.test(p.diagnosticarQR('Hola', '2026-11').motivo));
+  assert.ok(/CDC suelto/.test(p.diagnosticarQR(cdcSintetico(), '2026-11').motivo));
+  const otro = p.diagnosticarQR('https://pagos.ejemplo.com/qr?x=1', '2026-11');
+  assert.ok(/pagos\.ejemplo\.com/.test(otro.motivo));
+  assert.strictEqual(otro.enlace, '');
+  assert.ok(/vacío/.test(p.diagnosticarQR('', '2026-11').motivo));
+});
+prueba('diagnosticarQR: e-Kuatia sin CDC', () => {
+  const d = p.diagnosticarQR('https://ekuatia.set.gov.py/consultas/qr?nVersion=150&Id=123', '2026-11');
+  assert.ok(/no trae el CDC/.test(d.motivo));
+  assert.ok(d.enlace);
+});
+prueba('diagnosticarQR: otro mes sugiere el período y muestra los datos', () => {
+  const d = p.diagnosticarQR(enlace(cdcSintetico('20261005'), '2026-10-05'), '2026-11', '1234567');
+  assert.strictEqual(d.periodoSugerido, '2026-10');
+  assert.ok(d.datos.some(([k, v]) => k === 'Número' && v === '001-002-0000123'));
+  assert.ok(d.datos.some(([k, v]) => k === 'Documento' && v === 'Factura electrónica'));
+});
+prueba('diagnosticarQR: otro cliente y sin RUC receptor', () => {
+  const d = p.diagnosticarQR(enlace(cdcSintetico(), '2026-11-02'), '2026-11', '7654321');
+  assert.strictEqual(d.rucReceptor, '1234567');
+  assert.ok(/otro cliente/.test(d.motivo));
+  const sin = p.diagnosticarQR(enlace(cdcSintetico(), '2026-11-02').replace('&dRucRec=1234567', ''), '2026-11', '7654321');
+  assert.ok(/consumidor final/.test(sin.detalle));
+});
+prueba('diagnosticarQR: nota de crédito', () => {
+  const d = p.diagnosticarQR(enlace('05' + cdcSintetico().slice(2), '2026-11-02'), '2026-11', '1234567');
+  assert.ok(/nota de crédito/.test(d.motivo));
+  assert.ok(d.datos.some(([k, v]) => k === 'Documento' && v === 'Nota de crédito electrónica'));
+});
+
 console.log(fallas.join('\n\n'));
 console.log(`\n${pasadas} pruebas pasadas, ${fallas.length} fallidas.`);
 process.exit(fallas.length ? 1 : 0);

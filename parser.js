@@ -70,6 +70,10 @@ function parsearEnlace(texto, periodoEsperado, rucCliente) {
   };
   factura.id = claveFactura(factura);
 
+  // Solo facturas y autofacturas: notas de crédito/débito y remisiones no son compras
+  if (!DOCS_ACEPTADOS.includes(factura.tipoDoc)) {
+    return { ok: false, tipoDistinto: true, factura, error: `Es una ${nombreTipoDoc(factura.tipoDoc).toLowerCase()}, no una factura: no se carga como compra.` };
+  }
   if (periodoEsperado && periodo !== periodoEsperado) {
     return { ok: false, periodoDistinto: true, factura, error: `Factura de ${periodo}, fuera del período ${periodoEsperado}.` };
   }
@@ -80,6 +84,71 @@ function parsearEnlace(texto, periodoEsperado, rucCliente) {
     return { ok: false, rucDistinto: true, factura, error };
   }
   return { ok: true, factura };
+}
+
+// Tipo de documento electrónico según los 2 primeros dígitos del CDC
+const TIPOS_DOC = {
+  '01': 'Factura electrónica',
+  '02': 'Factura electrónica de exportación',
+  '03': 'Factura electrónica de importación',
+  '04': 'Autofactura electrónica',
+  '05': 'Nota de crédito electrónica',
+  '06': 'Nota de débito electrónica',
+  '07': 'Nota de remisión electrónica',
+  '08': 'Comprobante de retención electrónico'
+};
+const DOCS_ACEPTADOS = ['01', '04'];
+const nombreTipoDoc = t => TIPOS_DOC[t] || `Documento tipo ${t}`;
+const HOST_EKUATIA = 'ekuatia.set.gov.py';
+
+// Explica por qué un QR no se acepta y muestra lo que contiene.
+// Devuelve { motivo, detalle, datos: [[etiqueta, valor]], enlace (si es de e-Kuatia), periodoSugerido, rucReceptor, r }.
+function diagnosticarQR(texto, periodo, rucCliente) {
+  const t = String(texto ?? '').trim();
+  const d = { motivo: '', detalle: '', datos: [], enlace: '', periodoSugerido: '', rucReceptor: '', contenido: t };
+  if (!t) return Object.assign(d, { motivo: 'El QR está vacío.' });
+  let url = null;
+  try { url = new URL(t); } catch { url = null; }
+  if (!url || !/^https?:$/.test(url.protocol)) {
+    let tipo = 'un texto';
+    if (/^WIFI:/i.test(t)) tipo = 'una red Wi-Fi';
+    else if (/^BEGIN:VCARD/i.test(t)) tipo = 'una tarjeta de contacto';
+    else if (/^(tel|sms|mailto|geo):/i.test(t)) tipo = 'un teléfono, mensaje, correo o ubicación';
+    else if (/^\d{44}$/.test(t)) tipo = 'un CDC suelto (sin el enlace de e-Kuatia)';
+    return Object.assign(d, { motivo: `No es un QR de factura: contiene ${tipo}.`,
+      detalle: /^\d{44}$/.test(t) ? 'Carga la factura con Sin QR o A mano usando ese CDC.' : 'Busca el QR impreso en el KuDE de la factura electrónica.' });
+  }
+  if (url.hostname !== HOST_EKUATIA) {
+    return Object.assign(d, { motivo: `No es un QR de factura: es un enlace de ${url.hostname}.`,
+      detalle: 'Los QR de facturas electrónicas llevan a ekuatia.set.gov.py. Puede ser un QR de pago, de una página web o de promociones.' });
+  }
+  d.enlace = t;
+  const r = parsearEnlace(t, periodo, rucCliente);
+  d.r = r;
+  if (!r.factura) {
+    return Object.assign(d, { motivo: 'Es un enlace de e-Kuatia, pero no trae el CDC de 44 dígitos.',
+      detalle: 'El QR puede estar incompleto o mal impreso. Prueba con otra foto o carga la factura con Sin QR.' });
+  }
+  const f = r.factura;
+  d.datos = [
+    ['Documento', nombreTipoDoc(f.tipoDoc)],
+    ['Número', f.numeroCompleto],
+    ['Fecha de emisión', f.fecha],
+    ['RUC emisor', `${f.rucEmisor}-${f.dvEmisor}`],
+    ['RUC receptor', f.rucReceptor || '(no tiene)'],
+    ['Total (Gs)', f.total.toLocaleString('es-PY')],
+    ['IVA (Gs)', f.iva.toLocaleString('es-PY')],
+    ['CDC', f.cdc]
+  ];
+  d.rucReceptor = f.rucReceptor;
+  if (r.ok) return Object.assign(d, { motivo: 'La factura es válida.' });
+  d.motivo = r.error;
+  if (r.tipoDistinto) d.detalle = 'Solo se cargan facturas y autofacturas. Las notas de crédito y débito se registran aparte.';
+  else if (r.periodoDistinto) { d.periodoSugerido = f.periodo; d.detalle = 'Solo se aceptan facturas del mes elegido.'; }
+  else if (r.rucDistinto) d.detalle = f.rucReceptor
+    ? 'El comprador de esta factura no es el cliente elegido.'
+    : 'Sin RUC receptor la factura no puede asignarse a un cliente (suele ser a consumidor final).';
+  return d;
 }
 
 // ---------- Facturas sin QR (lectura con IA o carga manual) ----------
@@ -785,6 +854,7 @@ if (typeof module !== 'undefined') {
     armarPromptIA, memoriaVacia, sugerenciaProveedor, recordarProveedor,
     CUENTAS_VENTA, CUENTAS_VENTAS, OPERACIONES, CONSUMIDOR_FINAL, CAMPOS_IA_VENTA, gruposCuentas, cuentasDe,
     sugerenciaVenta, recordarVenta, separarTimbrados, nombreParaArchivo, nombreArchivoExcel,
-    armarPromptVentaIA, promptIA, esquemaIA, aFilaExcelVenta
+    armarPromptVentaIA, promptIA, esquemaIA, aFilaExcelVenta,
+    TIPOS_DOC, DOCS_ACEPTADOS, nombreTipoDoc, diagnosticarQR
   };
 }
