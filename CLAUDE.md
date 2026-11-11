@@ -72,13 +72,24 @@ Trabaja con **compras** (QR, IA y a mano) y **ventas** (solo IA y a mano; el usu
 - Tema claro u oscuro según el sistema; la vista de cámara siempre es oscura.
 
 ### Detección de QR
-1. Si existe `BarcodeDetector` (Chrome Android), se usa primero: es el lector más robusto para QR densos.
-2. Si no, se usa `jsQR` sobre el cuadro completo.
-3. Si falla, se prueba con el 80 % central ampliado 1.5×.
+- **Un cuadro a la vez** (`detectarEnVideo` en un ciclo con `setTimeout`): el siguiente intento empieza cuando termina el anterior, así las lecturas no se acumulan. Pausa mientras están abiertas las ventanas Completar o "QR no aceptado".
+- Con `BarcodeDetector` (Chrome Android) se usa **solo él** (antes también corría jsQR en cada cuadro y lo hacía lento).
+- Sin él, `jsQR` alterna dos estrategias livianas, una por cuadro: (A) cuadro completo reducido a 960 px y (B) recuadro central del 80 % en resolución real, sin ampliar. Solo QR normales (`dontInvert`).
+- Fotos de la galería (`detectarEnFuente`): cadena completa, con detector, cuadro completo y centro ampliado, e inversión.
+- El contorno del QR detectado se dibuja en verde sobre el video (`marcarQR`, canvas `#marcaQR`).
+- Prueba sintética en Chromium sin BarcodeDetector (QR versión 15, 1280×720): antes 609 ms / 975 ms (CPU ×4), ahora 300 ms / 611 ms.
+
+### QR no aceptado
+- Si `parsearEnlace` rechaza un QR, se pausa la lectura y se abre la ventana **QR no aceptado** (`diagnosticarQR`): motivo en palabras simples, datos leídos (documento, número, fecha, RUC emisor y receptor, total, IVA, CDC) y el contenido completo con botón Copiar.
+- Motivos: texto, Wi-Fi, contacto, CDC suelto, enlace de otro sitio, e-Kuatia sin CDC, documento que no es factura, otro mes, otro cliente o sin RUC receptor.
+- Botones según el caso: "Cambiar a <mes> y cargar", "Cambiar a <cliente> y cargar", "Consultar en e-Kuatia" (solo enlaces de ekuatia.set.gov.py) y "Seguir escaneando".
+- Las facturas ya registradas no abren la ventana: solo el aviso ámbar (pedido del usuario).
+- **Tipo de documento:** solo se aceptan CDC tipo 01 (factura) y 04 (autofactura). Notas de crédito (05), de débito (06), remisiones (07) y demás se rechazan (`DOCS_ACEPTADOS`, `TIPOS_DOC`).
 
 ### Cámara
 - Requiere HTTPS o localhost. Desde un archivo local (`file://`) Chrome Android no da permiso.
 - Pide `facingMode: environment` y 1920×1080 ideal. La resolución real se muestra en pantalla para diagnóstico.
+- Al iniciar pide enfoque, exposición y balance de blancos continuos si la cámara los permite (`enfoqueContinuo`).
 
 ### App instalable (PWA)
 - `manifest.webmanifest`: pantalla completa (`standalone`), vertical, rutas relativas para funcionar dentro de GitHub Pages (`/<repositorio>/`).
