@@ -36,9 +36,9 @@ En el visor, el botón de cámara con flechas cambia entre la cámara trasera y 
 - Los Excel se llaman `Compras_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` y `Ventas_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` (el nombre se puede cambiar en el perfil del cliente).
 
 ## Excel del período (contrato 1.0)
-- **Exportar → Guardar Excel del período** genera un solo archivo con las compras y ventas del cliente: `QR_<RUC>_<AAAA-MM>_<Nombre_Apellido>.xlsx`, hoja `QR`, con las 19 columnas del contrato para la extensión de Chrome (RUC sin DV, montos enteros).
+- **Exportar → Guardar Excel del período** genera un solo archivo con las compras y ventas del cliente: `QR_<RUC>_<AAAA-MM>_<Nombre_Apellido>.xlsx`, hoja `QR`, con todos los datos en 30 columnas: primero los RUC, luego las columnas del contrato y al final razón social, timbrado, condición, cuenta, descripción, desglose, tipo, origen y "Excluir de conciliación" (RUC sin DV, montos enteros).
 - La razón social del proveedor es opcional: se puede escribir en la ventana Completar y la app la recuerda.
-- Para volver al formato anterior (Compras_/Ventas_), cambiar `FORMATO_EXCEL` a `'anterior'` en `app.js` y subir `VERSION` en `sw.js`.
+- Otros formatos: `FORMATO_EXCEL` en `app.js` = `'contrato'` (solo las 19 columnas del contrato 1.0) o `'anterior'` (Compras_/Ventas_); después subir `VERSION` en `sw.js`.
 
 ## Facturas sin QR (lectura con IA)
 1. En **Exportar → Lectura con IA**, elige el proveedor (Gemini, Claude o copiar y pegar) y pega tu API key. Se guarda solo en el celular.
