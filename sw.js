@@ -1,7 +1,7 @@
 // Service worker: guarda la app en el celular para abrirla rápido y sin internet.
 // No guarda datos de facturas: esos viven solo en localStorage.
 // IMPORTANTE: al cambiar cualquier archivo de la app, sube VERSION para que el celular reciba la actualización.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = 'lectorqr-' + VERSION;
 const APP = [
   './', 'index.html', 'app.js', 'parser.js', 'manifest.webmanifest',

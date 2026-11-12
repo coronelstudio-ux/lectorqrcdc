@@ -7,6 +7,10 @@ const KEY_CLIENTES = 'lectorQR_clientes';
 const KEY_CLIENTE = 'lectorQR_cliente';
 const KEY_PROVEEDORES = 'lectorQR_proveedores';
 const KEY_OPERACION = 'lectorQR_operacion';
+// Formato del Excel: 'contrato' = contrato 1.0 del informe de sincronización (un archivo QR_ con compras y ventas,
+// 19 columnas). Para volver al formato anterior (Compras_/Ventas_ con cuenta, timbrado y desglose), poner
+// 'anterior' y subir VERSION en sw.js.
+const FORMATO_EXCEL = 'contrato';
 const KEY_CLAVE = { gemini: 'lectorQR_clave_gemini', claude: 'lectorQR_clave_claude' };
 const MODELOS = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-5-5' };
 const NOMBRE_IA = { gemini: 'Gemini', claude: 'Claude', manual: 'copiar y pegar' };
@@ -23,7 +27,7 @@ const el = {
   contador: $('contador'), buscar: $('buscar'), tabla: $('tabla'), insignia: $('insignia'),
   expPeriodo: $('expPeriodo'), expCantidad: $('expCantidad'), expTotal: $('expTotal'), expIva: $('expIva'),
   hojaCompletar: $('hojaCompletar'), compTitulo: $('compTitulo'), compResumen: $('compResumen'), compNota: $('compNota'),
-  kCuenta: $('k_cuenta'), kDescripcion: $('k_descripcion'), kTimbrado: $('k_timbrado'),
+  kCuenta: $('k_cuenta'), kDescripcion: $('k_descripcion'), kTimbrado: $('k_timbrado'), kRazonSocial: $('k_razonSocial'), kRazonEtiqueta: $('kRazonEtiqueta'),
   btnCancelarComp: $('btnCancelarComp'), btnGuardarComp: $('btnGuardarComp'),
   cActividades: $('c_actividades'), expIncompletas: $('expIncompletas'),
   cTimbrados: $('c_timbrados'), cNombreArchivo: $('c_nombreArchivo'), timbradosCliente: $('timbradosCliente'),
@@ -165,6 +169,7 @@ function cargarMemoria() {
   try { memoria = JSON.parse(leerLS(KEY_PROVEEDORES) || 'null') || memoriaVacia(); } catch { memoria = memoriaVacia(); }
   if (!memoria.timbrados || !memoria.cuentas) memoria = memoriaVacia();
   memoria.ventas = memoria.ventas || {};
+  memoria.razones = memoria.razones || {};
 }
 function guardarMemoria() { escribirLS(KEY_PROVEEDORES, JSON.stringify(memoria)); }
 
@@ -195,8 +200,13 @@ function cambiarOperacion(op) {
     ? 'Ventas: carga las facturas emitidas por el cliente con Sin QR (lectura con IA) o A mano.'
     : 'Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.';
   el.tituloLista.textContent = venta ? 'Facturas de venta' : 'Facturas de compra';
-  el.subtituloExportar.textContent = `Excel de ${venta ? 'ventas' : 'compras'} del período para guardar en el celular`;
-  el.textoGuardar.textContent = `Guardar Excel de ${venta ? 'ventas' : 'compras'}`;
+  if (FORMATO_EXCEL === 'contrato') {
+    el.subtituloExportar.textContent = 'Un Excel del período con compras y ventas del cliente (formato del contrato 1.0)';
+    el.textoGuardar.textContent = 'Guardar Excel del período';
+  } else {
+    el.subtituloExportar.textContent = `Excel de ${venta ? 'ventas' : 'compras'} del período para guardar en el celular`;
+    el.textoGuardar.textContent = `Guardar Excel de ${venta ? 'ventas' : 'compras'}`;
+  }
   el.buscar.value = '';
   render();
 }
@@ -371,6 +381,8 @@ function abrirCompletar(f, modo) {
   el.kCuenta.value = f.cuenta || sug.cuenta;
   el.kDescripcion.value = f.descripcion || sug.descripcion;
   el.kTimbrado.value = f.timbrado || sug.timbrado;
+  el.kRazonEtiqueta.textContent = v ? 'Razón social del comprador (opcional)' : 'Razón social del proveedor (opcional)';
+  el.kRazonSocial.value = v ? (f.razonSocialReceptor || '') : (f.razonSocial || sug.razonSocial || '');
   const sugirio = (!f.cuenta && sug.cuenta) || (!f.timbrado && sug.timbrado);
   el.compNota.textContent = sugirio ? `Completado con lo último que usaste con este ${v ? 'cliente' : 'proveedor'}. Revisa y guarda.` : '';
   abrirHoja(el.hojaCompletar);
@@ -386,9 +398,12 @@ function validarCompletar() {
     operacion: completando ? completando.f.operacion : 'compra',
     cuenta: el.kCuenta.value,
     descripcion: normalizarDescripcion(el.kDescripcion.value),
-    timbrado: el.kTimbrado.value.replace(/\D/g, '')
+    timbrado: el.kTimbrado.value.replace(/\D/g, ''),
+    razonSocial: el.kRazonSocial.value.trim().toUpperCase()
   };
   const errores = validarComplementos(datos, opcionesCliente());
+  // La razón social es opcional; en ventas corresponde al comprador
+  if (datos.operacion === 'venta') { datos.razonSocialReceptor = datos.razonSocial || (completando ? completando.f.razonSocialReceptor : ''); delete datos.razonSocial; }
   delete datos.operacion;
   for (const [c, input] of [['cuenta', el.kCuenta], ['descripcion', el.kDescripcion], ['timbrado', el.kTimbrado]]) {
     const campo = input.closest('.campo');
@@ -688,11 +703,19 @@ async function leerFoto(archivo) {
 // Excel en memoria. Se guarda con "Guardar como" (elige carpeta) si el navegador lo permite;
 // si no, se descarga a la carpeta Descargas del celular.
 async function guardarExcel() {
-  const items = listaDelPeriodo();
-  if (!clienteActual()) { avisar('Elige primero el cliente.', 'err'); return; }
-  if (!items.length) { avisar(`No hay ${operacion === 'venta' ? 'ventas' : 'compras'} de este cliente en el período.`, 'err'); return; }
+  const contrato = FORMATO_EXCEL === 'contrato';
+  const cli = clienteActual();
+  if (!cli) { avisar('Elige primero el cliente.', 'err'); return; }
+  // Contrato 1.0: compras y ventas del cliente y período en un solo archivo (compras primero, por fecha)
+  const items = contrato
+    ? lista.filter(f => f.periodo === periodoActual() && f.clienteId === cli.id)
+        .sort((a, b) => (esVenta(a) - esVenta(b)) || String(a.fecha).localeCompare(String(b.fecha)))
+    : listaDelPeriodo();
+  if (!items.length) { avisar(contrato ? 'No hay facturas de este cliente en el período.' : `No hay ${operacion === 'venta' ? 'ventas' : 'compras'} de este cliente en el período.`, 'err'); return; }
   const incompletas = items.filter(f => faltan(f).length);
   if (incompletas.length) {
+    // Si las incompletas son del otro tipo (compras/ventas), se muestra ese tipo para encontrarlas
+    if (!incompletas.some(esDeLaVista)) cambiarOperacion(esVenta(incompletas[0]) ? 'venta' : 'compra');
     avisar(`Faltan datos en ${incompletas.length} factura(s). Complétalas en la Lista (marcadas en ámbar) para generar el Excel.`, 'err');
     el.buscar.value = '';
     mostrarVista('vistaLista');
@@ -702,11 +725,12 @@ async function guardarExcel() {
   if (typeof XLSX === 'undefined') { avisar('No se cargó la librería de Excel. Revisa la conexión.', 'err'); return; }
 
   const venta = operacion === 'venta';
-  const ws = XLSX.utils.json_to_sheet(items.map(venta ? aFilaExcelVenta : aFilaExcel));
+  const filas = contrato ? items.map(f => aFilaQR(f, cli)) : items.map(venta ? aFilaExcelVenta : aFilaExcel);
+  const ws = XLSX.utils.json_to_sheet(filas, contrato ? { header: COLUMNAS_QR } : undefined);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, venta ? 'Ventas' : 'Compras');
+  XLSX.utils.book_append_sheet(wb, ws, contrato ? 'QR' : (venta ? 'Ventas' : 'Compras'));
   const datos = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const nombre = nombreArchivoExcel(clienteActual(), operacion, periodoActual());
+  const nombre = contrato ? nombreArchivoQR(cli, periodoActual()) : nombreArchivoExcel(cli, operacion, periodoActual());
   const tipo = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const blob = new Blob([datos], { type: tipo });
 
