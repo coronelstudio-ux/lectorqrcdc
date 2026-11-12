@@ -35,6 +35,11 @@ En el visor, el botón de cámara con flechas cambia entre la cámara trasera y 
 - Cuenta (conceptos de venta de ContAdis), descripción, condición y "Excluir de conciliación" funcionan igual que en compras.
 - Los Excel se llaman `Compras_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` y `Ventas_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` (el nombre se puede cambiar en el perfil del cliente).
 
+## Excel del período (contrato 1.0)
+- **Exportar → Guardar Excel del período** genera un solo archivo con las compras y ventas del cliente: `QR_<RUC>_<AAAA-MM>_<Nombre_Apellido>.xlsx`, hoja `QR`, con las 19 columnas del contrato para la extensión de Chrome (RUC sin DV, montos enteros).
+- La razón social del proveedor es opcional: se puede escribir en la ventana Completar y la app la recuerda.
+- Para volver al formato anterior (Compras_/Ventas_), cambiar `FORMATO_EXCEL` a `'anterior'` en `app.js` y subir `VERSION` en `sw.js`.
+
 ## Facturas sin QR (lectura con IA)
 1. En **Exportar → Lectura con IA**, elige el proveedor (Gemini, Claude o copiar y pegar) y pega tu API key. Se guarda solo en el celular.
 2. En **Escanear**, toca **Sin QR** y saca una foto de la factura (o elígela de la galería).

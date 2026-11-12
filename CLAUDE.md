@@ -107,17 +107,22 @@ Trabaja con **compras** (QR, IA y a mano) y **ventas** (solo IA y a mano; el usu
 - `PROMPT_IA` pide solo JSON con las claves del esquema y `null` para lo que no aparece (sin estimar). `normalizarIA` limpia la respuesta, completa datos desde el CDC y marca dudosos.
 
 ### Excel (guardar en el celular)
-- Un Excel por cliente, período y tipo: `Compras_<Nombre>_<Apellido>_<AAAA-MM>.xlsx` o `Ventas_…` (hoja "Compras" o "Ventas"). El nombre sale de `nombreParaArchivo`: el campo "Nombre para archivos" del cliente o las dos primeras palabras de su nombre, sin acentos ni símbolos (`nombreArchivoExcel`).
+- **Formato actual: contrato 1.0** del informe "Lector QR y sincronización de las tres herramientas" (lector QR → extensión de Chrome → script AutoHotkey). Un solo archivo por cliente y período, con compras y ventas: `QR_<RUC cliente>_<AAAA-MM>_<Nombre_Apellido>.xlsx`, hoja `QR` (`aFilaQR`, `COLUMNAS_QR`, `nombreArchivoQR`, `VERSION_CONTRATO`).
+- 19 columnas: RUC cliente · Tipo de operación (`Compra`/`Venta`) · CDC · Número · Fecha emisión · Período · Tipo doc · Establecimiento · Punto · RUC emisor · DV emisor · RUC receptor · Total (Gs) · IVA (Gs) · Ítems · Versión XML · Fecha de lectura · Estado · Enlace QR.
+- RUC sin DV y sin ceros a la izquierda (el DV del emisor va en su columna). RUC receptor: sin DV en compras (así viene del QR); en ventas, el comprador con DV (`7654321-0`). Total e IVA redondeados a enteros. Compras primero, luego ventas, por fecha.
+- No lleva razón social, timbrado, condición, cuenta, descripción ni desglose (los completa la extensión). La app los sigue pidiendo y el Excel no se genera si falta cuenta, descripción o timbrado (decisión del usuario). Si las incompletas son del otro tipo, la app cambia a Compras o Ventas para mostrarlas.
+- **Razón social opcional:** en la ventana Completar (QR) y en el lápiz de la Lista. Se recuerda por RUC del proveedor (`memoria.razones`) y se sugiere; no bloquea nada.
+- **Volver al formato anterior** (`Compras_/Ventas_<Nombre>_<Apellido>_<AAAA-MM>.xlsx`, 28/25 columnas con cuenta, timbrado y desglose): en `app.js` poner `const FORMATO_EXCEL = 'anterior';` y subir `VERSION` en `sw.js`. Las funciones `aFilaExcel`, `aFilaExcelVenta` y `nombreArchivoExcel` se conservan. Para deshacer todo el cambio: `git revert` de los commits del contrato; el estado previo es el commit `324aebe` (tag local `antes-contrato-qr`).
 - Si existe `showSaveFilePicker`, se abre "Guardar como" para elegir carpeta (puede ser de Google Drive). Si el usuario cancela, no se hace nada.
 - Si no existe o falla, se descarga con `<a download>` a la carpeta Descargas. En Chrome se puede activar "Preguntar dónde guardar los archivos" para elegir la carpeta.
 - **No se usa `navigator.share`**: Chrome Android no permite compartir `.xlsx` (solo imágenes, PDF, texto, etc.) y daba error de permiso. El usuario pidió reemplazarlo por guardar.
 
 ## Columnas del Excel (orden fijo, no cambiar sin avisar)
-Fecha emisión · Número · Timbrado · RUC emisor · DV emisor · Razón social · Cuenta · Descripción · Condición · Gravada 10 % · Gravada 5 % · Exenta · Total (Gs) · IVA (Gs) · Tipo · Origen de los datos · Excluir de conciliación · Estado · RUC receptor · Período · Tipo doc · Establecimiento · Punto · Ítems · Versión XML · Fecha de lectura · Enlace QR · CDC
+**Actual (contrato 1.0, hoja `QR`):** RUC cliente · Tipo de operación · CDC · Número · Fecha emisión · Período · Tipo doc · Establecimiento · Punto · RUC emisor · DV emisor · RUC receptor · Total (Gs) · IVA (Gs) · Ítems · Versión XML · Fecha de lectura · Estado · Enlace QR. Cambiarlas exige subir la versión del contrato y actualizar la extensión y el script a la vez.
 
-**Ventas (25 columnas, `aFilaExcelVenta`):** Fecha emisión · Número · Timbrado · RUC comprador · DV comprador · Razón social comprador · Cuenta · Descripción · Condición · Gravada 10 % · Gravada 5 % · Exenta · Total (Gs) · IVA (Gs) · Tipo · Origen de los datos · Excluir de conciliación · Estado · RUC emisor (cliente) · Período · Tipo doc · Establecimiento · Punto · Fecha de lectura · CDC
-
-Compras: 28 columnas, orden aprobado por el usuario: primero los datos principales (cuenta, descripción y timbrado junto a los datos del proveedor) y el CDC al final. En facturas QR, razón social, condición y desglose quedan vacíos. "Excluir de conciliación" sale como `Sí` / `No`. Para el script de ContAdis conviene comparar las cuentas sin acentos ni mayúsculas.
+**Formato anterior** (solo con `FORMATO_EXCEL = 'anterior'`):
+- Compras (28): Fecha emisión · Número · Timbrado · RUC emisor · DV emisor · Razón social · Cuenta · Descripción · Condición · Gravada 10 % · Gravada 5 % · Exenta · Total (Gs) · IVA (Gs) · Tipo · Origen de los datos · Excluir de conciliación · Estado · RUC receptor · Período · Tipo doc · Establecimiento · Punto · Ítems · Versión XML · Fecha de lectura · Enlace QR · CDC
+- Ventas (25): Fecha emisión · Número · Timbrado · RUC comprador · DV comprador · Razón social comprador · Cuenta · Descripción · Condición · Gravada 10 % · Gravada 5 % · Exenta · Total (Gs) · IVA (Gs) · Tipo · Origen de los datos · Excluir de conciliación · Estado · RUC emisor (cliente) · Período · Tipo doc · Establecimiento · Punto · Fecha de lectura · CDC
 
 ## Estructura del enlace QR (e-Kuatia)
 `https://ekuatia.set.gov.py/consultas/qr?nVersion=…&Id=<CDC>&dFeEmiDE=<fecha en hex>&dRucRec=…&dTotGralOpe=…&dTotIVA=…&cItems=…&DigestValue=…&IdCSC=0001&cHashQR=…`
