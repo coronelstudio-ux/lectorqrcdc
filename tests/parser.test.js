@@ -572,6 +572,30 @@ prueba('nombreArchivoQR: QR_<RUC>_<período>_<Nombre_Apellido>', () => {
   assert.strictEqual(p.VERSION_CONTRATO, '1.0');
 });
 
+prueba('aFilaQRCompleto: 30 columnas, RUC primero, orden del contrato y todos los datos al final', () => {
+  const cols = p.COLUMNAS_QR_COMPLETO;
+  assert.strictEqual(cols.length, 30);
+  assert.deepStrictEqual(cols.slice(0, 4), ['RUC cliente', 'RUC emisor', 'DV emisor', 'RUC receptor']);
+  // Las demás del contrato mantienen su orden
+  const resto = p.COLUMNAS_QR.filter(c => !cols.slice(0, 4).includes(c));
+  assert.deepStrictEqual(cols.slice(4, 4 + resto.length), resto);
+  assert.deepStrictEqual(cols.slice(19), ['Razón social', 'Timbrado', 'Condición', 'Cuenta', 'Descripción', 'Gravada 10 %',
+    'Gravada 5 %', 'Exenta', 'Tipo', 'Origen de los datos', 'Excluir de conciliación']);
+  const compra = Object.assign(base(), { razonSocial: 'PROVEEDOR EJEMPLO', condicion: 'Contado', total10: 55000.4 });
+  const f1 = p.aFilaQRCompleto(compra, { ruc: '1234567' });
+  assert.deepStrictEqual(Object.keys(f1), cols);
+  assert.strictEqual(f1['Razón social'], 'PROVEEDOR EJEMPLO');
+  assert.strictEqual(f1['Timbrado'], '12345678');
+  assert.strictEqual(f1['Cuenta'], 'COSTO DE MERCADERÍAS GRAVADAS POR EL IVA');
+  assert.strictEqual(f1['Gravada 10 %'], 55000);
+  assert.strictEqual(f1['Tipo de operación'], 'Compra');
+  assert.strictEqual(f1['Excluir de conciliación'], 'No');
+  const f2 = p.aFilaQRCompleto(venta(), { ruc: '1234567' });
+  assert.strictEqual(f2['Razón social'], 'COMPRADOR EJEMPLO'); // en ventas, el comprador
+  assert.strictEqual(f2['RUC receptor'], '7654321-0');
+  assert.strictEqual(f2['Tipo de operación'], 'Venta');
+});
+
 console.log(fallas.join('\n\n'));
 console.log(`\n${pasadas} pruebas pasadas, ${fallas.length} fallidas.`);
 process.exit(fallas.length ? 1 : 0);

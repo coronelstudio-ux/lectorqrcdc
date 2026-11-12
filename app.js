@@ -7,10 +7,12 @@ const KEY_CLIENTES = 'lectorQR_clientes';
 const KEY_CLIENTE = 'lectorQR_cliente';
 const KEY_PROVEEDORES = 'lectorQR_proveedores';
 const KEY_OPERACION = 'lectorQR_operacion';
-// Formato del Excel: 'contrato' = contrato 1.0 del informe de sincronización (un archivo QR_ con compras y ventas,
-// 19 columnas). Para volver al formato anterior (Compras_/Ventas_ con cuenta, timbrado y desglose), poner
-// 'anterior' y subir VERSION en sw.js.
-const FORMATO_EXCEL = 'contrato';
+// Formato del Excel (un archivo QR_ con compras y ventas, hoja QR):
+//   'completo' = todos los datos, RUC primero y luego el orden del contrato (30 columnas, versión 1.1) — actual.
+//   'contrato' = solo las 19 columnas del contrato 1.0.
+//   'anterior' = archivos Compras_ / Ventas_ separados (28 / 25 columnas).
+// Para cambiar, poner el valor y subir VERSION en sw.js.
+const FORMATO_EXCEL = 'completo';
 const KEY_CLAVE = { gemini: 'lectorQR_clave_gemini', claude: 'lectorQR_clave_claude' };
 const MODELOS = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-5-5' };
 const NOMBRE_IA = { gemini: 'Gemini', claude: 'Claude', manual: 'copiar y pegar' };
@@ -200,8 +202,8 @@ function cambiarOperacion(op) {
     ? 'Ventas: carga las facturas emitidas por el cliente con Sin QR (lectura con IA) o A mano.'
     : 'Toca el botón de abajo para abrir la cámara y leer el QR de las facturas, una tras otra.';
   el.tituloLista.textContent = venta ? 'Facturas de venta' : 'Facturas de compra';
-  if (FORMATO_EXCEL === 'contrato') {
-    el.subtituloExportar.textContent = 'Un Excel del período con compras y ventas del cliente (formato del contrato 1.0)';
+  if (FORMATO_EXCEL !== 'anterior') {
+    el.subtituloExportar.textContent = 'Un Excel del período con compras y ventas del cliente';
     el.textoGuardar.textContent = 'Guardar Excel del período';
   } else {
     el.subtituloExportar.textContent = `Excel de ${venta ? 'ventas' : 'compras'} del período para guardar en el celular`;
@@ -703,7 +705,8 @@ async function leerFoto(archivo) {
 // Excel en memoria. Se guarda con "Guardar como" (elige carpeta) si el navegador lo permite;
 // si no, se descarga a la carpeta Descargas del celular.
 async function guardarExcel() {
-  const contrato = FORMATO_EXCEL === 'contrato';
+  const contrato = FORMATO_EXCEL !== 'anterior'; // un solo archivo QR_ (completo o contrato 1.0)
+  const completo = FORMATO_EXCEL === 'completo';
   const cli = clienteActual();
   if (!cli) { avisar('Elige primero el cliente.', 'err'); return; }
   // Contrato 1.0: compras y ventas del cliente y período en un solo archivo (compras primero, por fecha)
@@ -725,8 +728,10 @@ async function guardarExcel() {
   if (typeof XLSX === 'undefined') { avisar('No se cargó la librería de Excel. Revisa la conexión.', 'err'); return; }
 
   const venta = operacion === 'venta';
-  const filas = contrato ? items.map(f => aFilaQR(f, cli)) : items.map(venta ? aFilaExcelVenta : aFilaExcel);
-  const ws = XLSX.utils.json_to_sheet(filas, contrato ? { header: COLUMNAS_QR } : undefined);
+  const filas = completo ? items.map(f => aFilaQRCompleto(f, cli))
+    : contrato ? items.map(f => aFilaQR(f, cli))
+    : items.map(venta ? aFilaExcelVenta : aFilaExcel);
+  const ws = XLSX.utils.json_to_sheet(filas, contrato ? { header: completo ? COLUMNAS_QR_COMPLETO : COLUMNAS_QR } : undefined);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, contrato ? 'QR' : (venta ? 'Ventas' : 'Compras'));
   const datos = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });

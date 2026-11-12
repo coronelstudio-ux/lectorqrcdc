@@ -885,6 +885,34 @@ function aFilaQR(f, cliente) {
     'Enlace QR': n(f.enlace)
   };
 }
+// Formato completo (pedido del usuario): todos los datos, con los RUC primero y luego el orden del contrato;
+// al final razón social, timbrado, condición, cuenta, descripción, desglose, tipo, origen y exclusión.
+// Razón social: del proveedor en compras, del comprador en ventas. Montos enteros.
+const VERSION_CONTRATO_COMPLETO = '1.1';
+const COLUMNAS_QR_COMPLETO = ['RUC cliente', 'RUC emisor', 'DV emisor', 'RUC receptor',
+  ...COLUMNAS_QR.filter(c => !['RUC cliente', 'RUC emisor', 'DV emisor', 'RUC receptor'].includes(c)),
+  'Razón social', 'Timbrado', 'Condición', 'Cuenta', 'Descripción', 'Gravada 10 %', 'Gravada 5 %', 'Exenta',
+  'Tipo', 'Origen de los datos', 'Excluir de conciliación'];
+function aFilaQRCompleto(f, cliente) {
+  const base = aFilaQR(f, cliente);
+  const n = v => (v === null || v === undefined ? '' : v);
+  const extra = {
+    'Razón social': n(esVenta(f) ? f.razonSocialReceptor : f.razonSocial),
+    'Timbrado': n(f.timbrado),
+    'Condición': n(f.condicion),
+    'Cuenta': n(f.cuenta),
+    'Descripción': n(f.descripcion),
+    'Gravada 10 %': entero(f.total10),
+    'Gravada 5 %': entero(f.total5),
+    'Exenta': entero(f.exenta),
+    'Tipo': n(f.tipo) || 'QR',
+    'Origen de los datos': n(f.origen) || 'QR',
+    'Excluir de conciliación': f.excluirConciliacion ? 'Sí' : 'No'
+  };
+  const todo = Object.assign({}, base, extra);
+  return Object.fromEntries(COLUMNAS_QR_COMPLETO.map(c => [c, todo[c]]));
+}
+
 // QR_<RUC cliente>_<AAAA-MM>_<Nombre_Apellido>.xlsx (el contrato pide RUC y período; el nombre va al final)
 function nombreArchivoQR(c, periodo) {
   return `QR_${c ? c.ruc : ''}_${periodo}_${nombreParaArchivo(c)}.xlsx`;
@@ -904,6 +932,7 @@ if (typeof module !== 'undefined') {
     sugerenciaVenta, recordarVenta, separarTimbrados, nombreParaArchivo, nombreArchivoExcel,
     armarPromptVentaIA, promptIA, esquemaIA, aFilaExcelVenta,
     TIPOS_DOC, DOCS_ACEPTADOS, nombreTipoDoc, diagnosticarQR,
-    VERSION_CONTRATO, COLUMNAS_QR, aFilaQR, nombreArchivoQR
+    VERSION_CONTRATO, COLUMNAS_QR, aFilaQR, nombreArchivoQR,
+    VERSION_CONTRATO_COMPLETO, COLUMNAS_QR_COMPLETO, aFilaQRCompleto
   };
 }
