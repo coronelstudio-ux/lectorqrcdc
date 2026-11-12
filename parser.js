@@ -380,12 +380,13 @@ function faltantes(f, opciones = {}) {
 
 // ---------- Memoria por proveedor (para sugerir sin gastar IA) ----------
 // { timbrados: { rucEmisor: '12345678' }, cuentas: { clienteId: { rucEmisor: { cuenta, descripcion } } } }
-function memoriaVacia() { return { timbrados: {}, cuentas: {}, ventas: {} }; }
+function memoriaVacia() { return { timbrados: {}, cuentas: {}, ventas: {}, razones: {} }; }
 function sugerenciaProveedor(memoria, clienteId, rucEmisor) {
   const m = memoria || memoriaVacia();
   const ruc = String(rucEmisor ?? '').replace(/^0+/, '');
   const c = ((m.cuentas || {})[clienteId] || {})[ruc] || {};
-  return { timbrado: (m.timbrados || {})[ruc] || '', cuenta: normalizarCuenta(c.cuenta), descripcion: c.descripcion || '' };
+  return { timbrado: (m.timbrados || {})[ruc] || '', cuenta: normalizarCuenta(c.cuenta), descripcion: c.descripcion || '',
+    razonSocial: (m.razones || {})[ruc] || '' };
 }
 // Ventas: cuenta y descripción por cliente y comprador, con lo último usado del cliente como respaldo
 function sugerenciaVenta(memoria, clienteId, rucReceptor) {
@@ -411,6 +412,8 @@ function recordarProveedor(memoria, clienteId, f) {
   const ruc = String(f.rucEmisor ?? '').replace(/^0+/, '');
   if (!ruc) return m;
   if (/^\d{8}$/.test(String(f.timbrado ?? ''))) m.timbrados[ruc] = String(f.timbrado);
+  m.razones = m.razones || {};
+  if (String(f.razonSocial ?? '').trim()) m.razones[ruc] = String(f.razonSocial).trim().toUpperCase();
   if (clienteId && CUENTAS.includes(f.cuenta)) {
     m.cuentas[clienteId] = m.cuentas[clienteId] || {};
     m.cuentas[clienteId][ruc] = { cuenta: f.cuenta, descripcion: normalizarDescripcion(f.descripcion) };
@@ -842,6 +845,51 @@ function aFilaExcelVenta(f) {
   };
 }
 
+// ---------- Excel del contrato 1.0 (lector QR -> extensión de Chrome) ----------
+// Ver INFORME_LECTOR_QR_Y_SINCRONIZACION, sección 5. Una fila por factura, compras y ventas juntas.
+// RUC sin DV (el DV va en su columna), montos enteros. No lleva razón social, timbrado, condición,
+// cuenta ni desglose: eso lo completa la extensión.
+const VERSION_CONTRATO = '1.0';
+const COLUMNAS_QR = ['RUC cliente', 'Tipo de operación', 'CDC', 'Número', 'Fecha emisión', 'Período', 'Tipo doc',
+  'Establecimiento', 'Punto', 'RUC emisor', 'DV emisor', 'RUC receptor', 'Total (Gs)', 'IVA (Gs)', 'Ítems',
+  'Versión XML', 'Fecha de lectura', 'Estado', 'Enlace QR'];
+const entero = v => (v === null || v === undefined || v === '' || !isFinite(Number(v)) ? '' : Math.round(Number(v)));
+
+function aFilaQR(f, cliente) {
+  const num = String(f.numeroCompleto || '');
+  const venta = esVenta(f);
+  const n = v => (v === null || v === undefined ? '' : v);
+  // Compras: RUC receptor sin DV (así viene del QR). Ventas: el comprador con DV si se conoce.
+  const receptor = venta
+    ? (rucBase(f.rucReceptor) ? `${rucBase(f.rucReceptor)}${f.dvReceptor ? '-' + f.dvReceptor : ''}` : '')
+    : rucBase(f.rucReceptor);
+  return {
+    'RUC cliente': cliente ? cliente.ruc : '',
+    'Tipo de operación': venta ? 'Venta' : 'Compra',
+    'CDC': f.cdc || '',
+    'Número': num,
+    'Fecha emisión': f.fecha,
+    'Período': f.periodo,
+    'Tipo doc': n(f.tipoDoc) || (/^\d{44}$/.test(f.cdc || '') ? f.cdc.slice(0, 2) : ''),
+    'Establecimiento': f.establecimiento || num.slice(0, 3),
+    'Punto': f.punto || num.slice(4, 7),
+    'RUC emisor': rucBase(f.rucEmisor),
+    'DV emisor': n(f.dvEmisor),
+    'RUC receptor': receptor,
+    'Total (Gs)': entero(f.total),
+    'IVA (Gs)': entero(f.iva),
+    'Ítems': n(f.items),
+    'Versión XML': n(f.version),
+    'Fecha de lectura': n(f.leidoEl),
+    'Estado': 'Pendiente Marangatu',
+    'Enlace QR': n(f.enlace)
+  };
+}
+// QR_<RUC cliente>_<AAAA-MM>_<Nombre_Apellido>.xlsx (el contrato pide RUC y período; el nombre va al final)
+function nombreArchivoQR(c, periodo) {
+  return `QR_${c ? c.ruc : ''}_${periodo}_${nombreParaArchivo(c)}.xlsx`;
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     parseMonto, hexToStr, parsearEnlace, aFilaExcel,
@@ -855,6 +903,7 @@ if (typeof module !== 'undefined') {
     CUENTAS_VENTA, CUENTAS_VENTAS, OPERACIONES, CONSUMIDOR_FINAL, CAMPOS_IA_VENTA, gruposCuentas, cuentasDe,
     sugerenciaVenta, recordarVenta, separarTimbrados, nombreParaArchivo, nombreArchivoExcel,
     armarPromptVentaIA, promptIA, esquemaIA, aFilaExcelVenta,
-    TIPOS_DOC, DOCS_ACEPTADOS, nombreTipoDoc, diagnosticarQR
+    TIPOS_DOC, DOCS_ACEPTADOS, nombreTipoDoc, diagnosticarQR,
+    VERSION_CONTRATO, COLUMNAS_QR, aFilaQR, nombreArchivoQR
   };
 }

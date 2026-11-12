@@ -372,9 +372,9 @@ prueba('ESQUEMA_IA: la cuenta solo puede ser del listado', () => {
 prueba('memoria por proveedor: timbrado global y cuenta por cliente', () => {
   let m = p.memoriaVacia();
   m = p.recordarProveedor(m, 'c1', { rucEmisor: '080000001', timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANTES', descripcion: 'nafta' });
-  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c1', '80000001'), { timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANTES', descripcion: 'NAFTA' });
-  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c2', '80000001'), { timbrado: '12345678', cuenta: '', descripcion: '' });
-  assert.deepStrictEqual(p.sugerenciaProveedor(null, 'c1', '1'), { timbrado: '', cuenta: '', descripcion: '' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c1', '80000001'), { timbrado: '12345678', cuenta: 'COMBUSTIBLES Y LUBRICANTES', descripcion: 'NAFTA', razonSocial: '' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(m, 'c2', '80000001'), { timbrado: '12345678', cuenta: '', descripcion: '', razonSocial: '' });
+  assert.deepStrictEqual(p.sugerenciaProveedor(null, 'c1', '1'), { timbrado: '', cuenta: '', descripcion: '', razonSocial: '' });
   // Datos inválidos no se recuerdan
   m = p.recordarProveedor(m, 'c1', { rucEmisor: '80000001', timbrado: '99', cuenta: 'OTRA', descripcion: 'x' });
   assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').timbrado, '12345678');
@@ -529,6 +529,47 @@ prueba('diagnosticarQR: nota de crédito', () => {
   const d = p.diagnosticarQR(enlace('05' + cdcSintetico().slice(2), '2026-11-02'), '2026-11', '1234567');
   assert.ok(/nota de crédito/.test(d.motivo));
   assert.ok(d.datos.some(([k, v]) => k === 'Documento' && v === 'Nota de crédito electrónica'));
+});
+
+// ---------- Excel del contrato 1.0 ----------
+prueba('memoria: razón social por proveedor (opcional)', () => {
+  let m = p.recordarProveedor(p.memoriaVacia(), 'c1', { rucEmisor: '80000001', razonSocial: 'Proveedor Ejemplo' });
+  assert.strictEqual(p.sugerenciaProveedor(m, 'c2', '80000001').razonSocial, 'PROVEEDOR EJEMPLO');
+  m = p.recordarProveedor(m, 'c1', { rucEmisor: '80000001', razonSocial: '' }); // vacía no borra la anterior
+  assert.strictEqual(p.sugerenciaProveedor(m, 'c1', '80000001').razonSocial, 'PROVEEDOR EJEMPLO');
+});
+prueba('aFilaQR compra: 19 columnas del contrato, RUC sin DV y montos enteros', () => {
+  const r = p.parsearEnlace(enlace(cdcSintetico(), '2026-11-02', '1090.909091', '99.17'), '2026-11');
+  const fila = p.aFilaQR(Object.assign(r.factura, { razonSocial: 'X', timbrado: '12345678', cuenta: 'ALQUILERES' }), { ruc: '1234567', dv: '8' });
+  assert.deepStrictEqual(Object.keys(fila), p.COLUMNAS_QR);
+  assert.strictEqual(p.COLUMNAS_QR.length, 19);
+  assert.strictEqual(fila['RUC cliente'], '1234567');
+  assert.strictEqual(fila['Tipo de operación'], 'Compra');
+  assert.strictEqual(fila['RUC emisor'], '80000001');
+  assert.strictEqual(fila['DV emisor'], '1');
+  assert.strictEqual(fila['RUC receptor'], '1234567');
+  assert.strictEqual(fila['Total (Gs)'], 1091);
+  assert.strictEqual(fila['IVA (Gs)'], 99);
+  assert.strictEqual(fila['Tipo doc'], '01');
+  assert.strictEqual(fila['Estado'], 'Pendiente Marangatu');
+  assert.ok(fila['Enlace QR'].startsWith('https://ekuatia.set.gov.py/'));
+  for (const extra of ['Razón social', 'Timbrado', 'Cuenta', 'Descripción', 'Condición', 'Gravada 10 %']) assert.ok(!(extra in fila));
+});
+prueba('aFilaQR venta y factura sin QR: comprador con DV, sin CDC ni enlace', () => {
+  const fila = p.aFilaQR(Object.assign(venta(), { rucEmisor: '01234567', leidoEl: '2026-11-15T10:00:00.000Z' }), { ruc: '1234567', dv: '8' });
+  assert.strictEqual(fila['Tipo de operación'], 'Venta');
+  assert.strictEqual(fila['RUC emisor'], '1234567');
+  assert.strictEqual(fila['RUC receptor'], '7654321-0');
+  assert.strictEqual(fila['CDC'], '');
+  assert.strictEqual(fila['Tipo doc'], '');
+  assert.strictEqual(fila['Establecimiento'], '001');
+  assert.strictEqual(fila['Punto'], '001');
+  assert.strictEqual(fila['Enlace QR'], '');
+  assert.strictEqual(fila['Total (Gs)'], 110000);
+});
+prueba('nombreArchivoQR: QR_<RUC>_<período>_<Nombre_Apellido>', () => {
+  assert.strictEqual(p.nombreArchivoQR({ ruc: '1234567', nombre: 'Juan Pérez Gómez' }, '2026-11'), 'QR_1234567_2026-11_Juan_Perez.xlsx');
+  assert.strictEqual(p.VERSION_CONTRATO, '1.0');
 });
 
 console.log(fallas.join('\n\n'));
